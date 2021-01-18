@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,10 +18,11 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/ref"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/filesys"
-	"github.com/liquidata-inc/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/ref"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/dolthub/dolt/go/store/hash"
 )
 
 type RepoStateReader interface {
@@ -29,13 +30,31 @@ type RepoStateReader interface {
 	CWBHeadSpec() *doltdb.CommitSpec
 	WorkingHash() hash.Hash
 	StagedHash() hash.Hash
+	IsMergeActive() bool
+	GetMergeCommit() string
 }
 
 type RepoStateWriter interface {
 	// SetCWBHeadRef(context.Context, ref.DoltRef) error
 	// SetCWBHeadSpec(context.Context, *doltdb.CommitSpec) error
+	SetStagedHash(context.Context, hash.Hash) error
 	SetWorkingHash(context.Context, hash.Hash) error
-	//	SetStagedHash(context.Context, hash.Hash) error
+	ClearMerge() error
+}
+
+type DocsReadWriter interface {
+	GetAllValidDocDetails() ([]doltdb.DocDetails, error)
+	PutDocsToWorking(ctx context.Context, docDetails []doltdb.DocDetails) error
+	PutDocsToStaged(ctx context.Context, docDetails []doltdb.DocDetails) (*doltdb.RootValue, error)
+	ResetWorkingDocsToStagedDocs(ctx context.Context) error
+	GetDocDetail(docName string) (doc doltdb.DocDetails, err error)
+}
+
+type DbData struct {
+	Ddb *doltdb.DoltDB
+	Rsw RepoStateWriter
+	Rsr RepoStateReader
+	Drw DocsReadWriter
 }
 
 type BranchConfig struct {
@@ -168,4 +187,102 @@ func (rs *RepoState) WorkingHash() hash.Hash {
 
 func (rs *RepoState) StagedHash() hash.Hash {
 	return hash.Parse(rs.Staged)
+}
+
+func (rs *RepoState) IsMergeActive() bool {
+	return rs.Merge != nil
+}
+
+func (rs *RepoState) GetMergeCommit() string {
+	return rs.Merge.Commit
+}
+
+// Returns the working root.
+func WorkingRoot(ctx context.Context, ddb *doltdb.DoltDB, rsr RepoStateReader) (*doltdb.RootValue, error) {
+	return ddb.ReadRootValue(ctx, rsr.WorkingHash())
+}
+
+// Updates the working root.
+func UpdateWorkingRoot(ctx context.Context, ddb *doltdb.DoltDB, rsw RepoStateWriter, newRoot *doltdb.RootValue) (hash.Hash, error) {
+	h, err := ddb.WriteRootValue(ctx, newRoot)
+
+	if err != nil {
+		return hash.Hash{}, doltdb.ErrNomsIO
+	}
+
+	err = rsw.SetWorkingHash(ctx, h)
+
+	if err != nil {
+		return hash.Hash{}, ErrStateUpdate
+	}
+
+	return h, nil
+}
+
+// Returns the head root.
+func HeadRoot(ctx context.Context, ddb *doltdb.DoltDB, rsr RepoStateReader) (*doltdb.RootValue, error) {
+	commit, err := ddb.ResolveRef(ctx, rsr.CWBHeadRef())
+
+	if err != nil {
+		return nil, err
+	}
+
+	return commit.GetRootValue()
+}
+
+// Returns the staged root.
+func StagedRoot(ctx context.Context, ddb *doltdb.DoltDB, rsr RepoStateReader) (*doltdb.RootValue, error) {
+	return ddb.ReadRootValue(ctx, rsr.StagedHash())
+}
+
+// Updates the staged root.
+func UpdateStagedRoot(ctx context.Context, ddb *doltdb.DoltDB, rsw RepoStateWriter, newRoot *doltdb.RootValue) (hash.Hash, error) {
+	h, err := ddb.WriteRootValue(ctx, newRoot)
+
+	if err != nil {
+		return hash.Hash{}, doltdb.ErrNomsIO
+	}
+
+	err = rsw.SetStagedHash(ctx, h)
+
+	if err != nil {
+		return hash.Hash{}, ErrStateUpdate
+	}
+
+	return h, nil
+}
+
+func UpdateStagedRootWithVErr(ddb *doltdb.DoltDB, rsw RepoStateWriter, updatedRoot *doltdb.RootValue) errhand.VerboseError {
+	_, err := UpdateStagedRoot(context.Background(), ddb, rsw, updatedRoot)
+
+	switch err {
+	case doltdb.ErrNomsIO:
+		return errhand.BuildDError("fatal: failed to write value").Build()
+	case ErrStateUpdate:
+		return errhand.BuildDError("fatal: failed to update the staged root state").Build()
+	}
+
+	return nil
+}
+
+func GetRoots(ctx context.Context, ddb *doltdb.DoltDB, rsr RepoStateReader) (working *doltdb.RootValue, staged *doltdb.RootValue, head *doltdb.RootValue, err error) {
+	working, err = WorkingRoot(ctx, ddb, rsr)
+
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	staged, err = StagedRoot(ctx, ddb, rsr)
+
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	head, err = HeadRoot(ctx, ddb, rsr)
+
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return working, staged, head, nil
 }

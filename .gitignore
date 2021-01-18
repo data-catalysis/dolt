@@ -1,8 +1,11 @@
 **/.idea/
 .vscode
-
+venv
 
 go.sum
 go.mod
 .DS_Store
 .sqlhistory
+benchmark/perf_tools/dolt-builds/dolt
+benchmark/perf_tools/dolt-builds/working
+benchmark/perf_tools/output

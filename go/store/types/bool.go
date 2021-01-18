@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/liquidata-inc/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/hash"
 )
 
 // Bool is a Noms Value wrapper around the primitive bool type.
@@ -88,7 +88,7 @@ func (b Bool) writeTo(w nomsWriter, nbf *NomsBinFormat) error {
 }
 
 func (b Bool) readFrom(nbf *NomsBinFormat, bnr *binaryNomsReader) (Value, error) {
-	return Bool(bnr.readBool()), nil
+	return Bool(bnr.ReadBool()), nil
 }
 
 func (b Bool) skip(nbf *NomsBinFormat, bnr *binaryNomsReader) {

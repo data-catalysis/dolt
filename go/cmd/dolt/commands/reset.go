@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,15 +19,14 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/liquidata-inc/dolt/go/libraries/utils/filesys"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
 
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/cli"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/errhand"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/diff"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env/actions"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/argparser"
+	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
+	"github.com/dolthub/dolt/go/libraries/doltcore/diff"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env/actions"
 )
 
 const (
@@ -71,20 +70,13 @@ func (cmd ResetCmd) Description() string {
 
 // CreateMarkdown creates a markdown file containing the helptext for the command at the given path
 func (cmd ResetCmd) CreateMarkdown(fs filesys.Filesys, path, commandStr string) error {
-	ap := cmd.createArgParser()
+	ap := cli.CreateResetArgParser()
 	return CreateMarkdown(fs, path, cli.GetCommandDocumentation(commandStr, resetDocContent, ap))
-}
-
-func (cmd ResetCmd) createArgParser() *argparser.ArgParser {
-	ap := argparser.NewArgParser()
-	ap.SupportsFlag(HardResetParam, "", "Resets the working tables and staged tables. Any changes to tracked tables in the working tree since {{.LessThan}}commit{{.GreaterThan}} are discarded.")
-	ap.SupportsFlag(SoftResetParam, "", "Does not touch the working tables, but removes all tables staged to be committed.")
-	return ap
 }
 
 // Exec executes the command
 func (cmd ResetCmd) Exec(ctx context.Context, commandStr string, args []string, dEnv *env.DoltEnv) int {
-	ap := cmd.createArgParser()
+	ap := cli.CreateResetArgParser()
 	help, usage := cli.HelpAndUsagePrinters(cli.GetCommandDocumentation(commandStr, resetDocContent, ap))
 	apr := cli.ParseArgs(ap, args, help)
 
@@ -94,146 +86,25 @@ func (cmd ResetCmd) Exec(ctx context.Context, commandStr string, args []string, 
 
 	workingRoot, stagedRoot, headRoot, verr := getAllRoots(ctx, dEnv)
 
+	var err error
 	if verr == nil {
 		if apr.ContainsAll(HardResetParam, SoftResetParam) {
 			verr = errhand.BuildDError("error: --%s and --%s are mutually exclusive options.", HardResetParam, SoftResetParam).Build()
+			HandleVErrAndExitCode(verr, usage)
 		} else if apr.Contains(HardResetParam) {
-			verr = resetHard(ctx, dEnv, apr, workingRoot, stagedRoot, headRoot)
+			err = actions.ResetHard(ctx, dEnv, apr, workingRoot, stagedRoot, headRoot)
 		} else {
-			verr = resetSoft(ctx, dEnv, apr, stagedRoot, headRoot)
+			stagedRoot, err = actions.ResetSoft(ctx, dEnv, apr, stagedRoot, headRoot)
+
+			if err != nil {
+				return handleResetError(err, usage)
+			}
+
+			printNotStaged(ctx, dEnv, stagedRoot)
 		}
 	}
 
-	return HandleVErrAndExitCode(verr, usage)
-}
-
-func resetHard(ctx context.Context, dEnv *env.DoltEnv, apr *argparser.ArgParseResults, workingRoot, stagedRoot, headRoot *doltdb.RootValue) errhand.VerboseError {
-	if apr.NArg() != 0 {
-		return errhand.BuildDError("--%s does not support additional params", HardResetParam).SetPrintUsage().Build()
-	}
-
-	// need to save the state of files that aren't tracked
-	untrackedTables := make(map[string]*doltdb.Table)
-	wTblNames, err := workingRoot.GetTableNames(ctx)
-
-	if err != nil {
-		return errhand.BuildDError("error: failed to read tables from the working set").AddCause(err).Build()
-	}
-
-	for _, tblName := range wTblNames {
-		untrackedTables[tblName], _, err = workingRoot.GetTable(ctx, tblName)
-
-		if err != nil {
-			return errhand.BuildDError("error: failed to read '%s' from the working set", tblName).AddCause(err).Build()
-		}
-	}
-
-	headTblNames, err := stagedRoot.GetTableNames(ctx)
-
-	if err != nil {
-		return errhand.BuildDError("error: failed to read tables from head").AddCause(err).Build()
-	}
-
-	for _, tblName := range headTblNames {
-		delete(untrackedTables, tblName)
-	}
-
-	newWkRoot := headRoot
-	for tblName, tbl := range untrackedTables {
-		if tblName != doltdb.DocTableName {
-			newWkRoot, err = newWkRoot.PutTable(ctx, tblName, tbl)
-		}
-		if err != nil {
-			return errhand.BuildDError("error: failed to write table back to database").Build()
-		}
-	}
-
-	// TODO: update working and staged in one repo_state write.
-	err = dEnv.UpdateWorkingRoot(ctx, newWkRoot)
-
-	if err != nil {
-		return errhand.BuildDError("error: failed to update the working tables.").AddCause(err).Build()
-	}
-
-	_, err = dEnv.UpdateStagedRoot(ctx, headRoot)
-
-	if err != nil {
-		return errhand.BuildDError("error: failed to update the staged tables.").AddCause(err).Build()
-	}
-
-	err = actions.SaveTrackedDocsFromWorking(ctx, dEnv)
-	if err != nil {
-		return errhand.BuildDError("error: failed to update docs on the filesystem.").AddCause(err).Build()
-	}
-
-	return nil
-}
-
-// RemoveDocsTbl takes a slice of table names and returns a new slice with DocTableName removed.
-func RemoveDocsTbl(tbls []string) []string {
-	var result []string
-	for _, tblName := range tbls {
-		if tblName != doltdb.DocTableName {
-			result = append(result, tblName)
-		}
-	}
-	return result
-}
-
-func resetSoft(ctx context.Context, dEnv *env.DoltEnv, apr *argparser.ArgParseResults, stagedRoot, headRoot *doltdb.RootValue) errhand.VerboseError {
-	tbls := apr.Args()
-
-	if len(tbls) == 0 || (len(tbls) == 1 && tbls[0] == ".") {
-		var err error
-		tbls, err = doltdb.UnionTableNames(ctx, stagedRoot, headRoot)
-
-		if err != nil {
-			return errhand.BuildDError("error: failed to get all tables").AddCause(err).Build()
-		}
-	}
-
-	tables, docs, err := actions.GetTblsAndDocDetails(dEnv, tbls)
-	if err != nil {
-		return errhand.BuildDError("error: failed to get all tables").AddCause(err).Build()
-	}
-
-	if len(docs) > 0 {
-		tables = RemoveDocsTbl(tables)
-	}
-
-	verr := ValidateTablesWithVErr(tables, stagedRoot, headRoot)
-
-	if verr != nil {
-		return verr
-	}
-
-	stagedRoot, err = resetDocs(ctx, dEnv, headRoot, docs)
-	if err != nil {
-		return errhand.BuildDError("error: failed to reset docs").AddCause(err).Build()
-	}
-
-	stagedRoot, verr = resetStaged(ctx, dEnv, tables, stagedRoot, headRoot)
-
-	if verr != nil {
-		return verr
-	}
-
-	printNotStaged(ctx, dEnv, stagedRoot)
-	return nil
-}
-
-func resetDocs(ctx context.Context, dEnv *env.DoltEnv, headRoot *doltdb.RootValue, docDetails env.Docs) (newStgRoot *doltdb.RootValue, err error) {
-	docs, err := dEnv.GetDocsWithNewerTextFromRoot(ctx, headRoot, docDetails)
-	if err != nil {
-		return nil, err
-	}
-
-	err = dEnv.PutDocsToWorking(ctx, docs)
-	if err != nil {
-		return nil, err
-	}
-
-	return dEnv.PutDocsToStaged(ctx, docs)
+	return handleResetError(err, usage)
 }
 
 func printNotStaged(ctx context.Context, dEnv *env.DoltEnv, staged *doltdb.RootValue) {
@@ -249,7 +120,7 @@ func printNotStaged(ctx context.Context, dEnv *env.DoltEnv, staged *doltdb.RootV
 		return
 	}
 
-	notStagedDocs, err := diff.NewDocDiffs(ctx, dEnv, working, nil, nil)
+	notStagedDocs, err := diff.NewDocDiffs(ctx, working, nil, nil)
 	if err != nil {
 		return
 	}
@@ -267,7 +138,7 @@ func printNotStaged(ctx context.Context, dEnv *env.DoltEnv, staged *doltdb.RootV
 		var lines []string
 		for _, td := range notStagedTbls {
 			if td.IsAdd() {
-				//  pre Git, unstaged new tables are untracked
+				//  per Git, unstaged new tables are untracked
 				continue
 			} else if td.IsDrop() {
 				lines = append(lines, fmt.Sprintf("%s\t%s", tblDiffTypeToShortLabel[diff.RemovedTable], td.CurName()))
@@ -290,15 +161,24 @@ func printNotStaged(ctx context.Context, dEnv *env.DoltEnv, staged *doltdb.RootV
 	}
 }
 
-func resetStaged(ctx context.Context, dEnv *env.DoltEnv, tbls []string, staged, head *doltdb.RootValue) (*doltdb.RootValue, errhand.VerboseError) {
-	updatedRoot, err := actions.MoveTablesBetweenRoots(ctx, tbls, head, staged)
+func handleResetError(err error, usage cli.UsagePrinter) int {
+	if actions.IsTblNotExist(err) {
+		tbls := actions.GetTablesForError(err)
+		bdr := errhand.BuildDError("Invalid Table(s):")
 
-	if err != nil {
-		tt := strings.Join(tbls, ", ")
-		return nil, errhand.BuildDError("error: failed to unstage tables: %s", tt).AddCause(err).Build()
+		for _, tbl := range tbls {
+			bdr.AddDetails("\t" + tbl)
+		}
+
+		return HandleVErrAndExitCode(bdr.Build(), usage)
 	}
 
-	return updatedRoot, UpdateStagedWithVErr(dEnv, updatedRoot)
+	var verr errhand.VerboseError = nil
+	if err != nil {
+		verr = errhand.BuildDError("error: Failed to reset changes.").AddCause(err).Build()
+	}
+
+	return HandleVErrAndExitCode(verr, usage)
 }
 
 func getAllRoots(ctx context.Context, dEnv *env.DoltEnv) (*doltdb.RootValue, *doltdb.RootValue, *doltdb.RootValue, errhand.VerboseError) {

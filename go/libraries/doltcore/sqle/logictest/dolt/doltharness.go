@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,18 +22,18 @@ import (
 	"strconv"
 	"strings"
 
-	sqle "github.com/liquidata-inc/go-mysql-server"
-	"github.com/liquidata-inc/go-mysql-server/sql"
-	"github.com/liquidata-inc/sqllogictest/go/logictest"
-	"github.com/liquidata-inc/vitess/go/vt/proto/query"
-	"github.com/liquidata-inc/vitess/go/vt/sqlparser"
+	sqle "github.com/dolthub/go-mysql-server"
+	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/dolthub/sqllogictest/go/logictest"
+	"github.com/dolthub/vitess/go/vt/proto/query"
+	"github.com/dolthub/vitess/go/vt/sqlparser"
 	"github.com/shopspring/decimal"
 
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/commands"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	dsql "github.com/liquidata-inc/dolt/go/libraries/doltcore/sqle"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/filesys"
+	"github.com/dolthub/dolt/go/cmd/dolt/commands"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	dsql "github.com/dolthub/dolt/go/libraries/doltcore/sqle"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
 )
 
 var _ logictest.Harness = &DoltHarness{}
@@ -210,11 +210,13 @@ func drainIterator(iter sql.RowIter) error {
 	for {
 		_, err := iter.Next()
 		if err == io.EOF {
-			return nil
+			break
 		} else if err != nil {
 			return err
 		}
 	}
+
+	return iter.Close()
 }
 
 // This shouldn't be necessary -- the fact that an iterator can return an error but not clean up after itself in all
@@ -332,7 +334,7 @@ func resetEnv(root *doltdb.RootValue) *doltdb.RootValue {
 }
 
 func sqlNewEngine(dEnv *env.DoltEnv) (*sqle.Engine, error) {
-	db := dsql.NewDatabase("dolt", dEnv.DoltDB, dEnv.RepoState, dEnv.RepoStateWriter())
+	db := dsql.NewDatabase("dolt", dEnv.DbData())
 	engine := sqle.NewDefault()
 	engine.AddDatabase(db)
 

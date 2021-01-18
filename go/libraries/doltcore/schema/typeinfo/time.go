@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,11 +15,12 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 // This is a dolt implementation of the MySQL type Time, thus most of the functionality
@@ -43,8 +44,22 @@ func (ti *timeType) ConvertNomsValueToValue(v types.Value) (interface{}, error) 
 	return nil, fmt.Errorf(`"%v" cannot convert NomsKind "%v" to a value`, ti.String(), v.Kind())
 }
 
+// ReadFrom reads a go value from a noms types.CodecReader directly
+func (ti *timeType) ReadFrom(_ *types.NomsBinFormat, reader types.CodecReader) (interface{}, error) {
+	k := reader.ReadKind()
+	switch k {
+	case types.IntKind:
+		val := reader.ReadInt()
+		return ti.sqlTimeType.Unmarshal(val), nil
+	case types.NullKind:
+		return nil, nil
+	}
+
+	return nil, fmt.Errorf(`"%v" cannot convert NomsKind "%v" to a value`, ti.String(), k)
+}
+
 // ConvertValueToNomsValue implements TypeInfo interface.
-func (ti *timeType) ConvertValueToNomsValue(v interface{}) (types.Value, error) {
+func (ti *timeType) ConvertValueToNomsValue(ctx context.Context, vrw types.ValueReadWriter, v interface{}) (types.Value, error) {
 	if v == nil {
 		return types.NullValue, nil
 	}
@@ -92,8 +107,13 @@ func (ti *timeType) GetTypeParams() map[string]string {
 
 // IsValid implements TypeInfo interface.
 func (ti *timeType) IsValid(v types.Value) bool {
-	_, err := ti.ConvertNomsValueToValue(v)
-	return err == nil
+	if _, ok := v.(types.Int); ok {
+		return true
+	}
+	if _, ok := v.(types.Null); ok || v == nil {
+		return true
+	}
+	return false
 }
 
 // NomsKind implements TypeInfo interface.
@@ -102,7 +122,7 @@ func (ti *timeType) NomsKind() types.NomsKind {
 }
 
 // ParseValue implements TypeInfo interface.
-func (ti *timeType) ParseValue(str *string) (types.Value, error) {
+func (ti *timeType) ParseValue(ctx context.Context, vrw types.ValueReadWriter, str *string) (types.Value, error) {
 	if str == nil || *str == "" {
 		return types.NullValue, nil
 	}
@@ -111,6 +131,11 @@ func (ti *timeType) ParseValue(str *string) (types.Value, error) {
 		return nil, err
 	}
 	return types.Int(val), nil
+}
+
+// Promote implements TypeInfo interface.
+func (ti *timeType) Promote() TypeInfo {
+	return &timeType{ti.sqlTimeType.Promote().(sql.TimeType)}
 }
 
 // String implements TypeInfo interface.

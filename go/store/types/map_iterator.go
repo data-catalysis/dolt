@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,11 +21,21 @@
 
 package types
 
-import "context"
+import (
+	"context"
+	"errors"
+	"io"
+)
 
 // MapIterator is the interface used by iterators over Noms Maps.
 type MapIterator interface {
 	Next(ctx context.Context) (k, v Value, err error)
+}
+
+// MapTupleIterator is an iterator that returns map keys and values as types.Tuple instances and follow the standard go
+// convention of using io.EOF to mean that all the data has been read.
+type MapTupleIterator interface {
+	Next(ctx context.Context) (k, v Tuple, err error)
 }
 
 // mapIterator can efficiently iterate through a Noms Map.
@@ -57,4 +67,42 @@ func (mi *mapIterator) Next(ctx context.Context) (k, v Value, err error) {
 	}
 
 	return mi.currentKey, mi.currentValue, nil
+}
+
+var errClosed = errors.New("closed")
+
+type mapRangeIter struct {
+	collItr *collTupleRangeIter
+}
+
+func (itr *mapRangeIter) Next(ctx context.Context) (k, v Tuple, err error) {
+	if itr.collItr == nil {
+		// only happens if there is nothing to iterate over
+		return Tuple{}, Tuple{}, io.EOF
+	}
+
+	k, err = itr.collItr.Next()
+
+	if err != nil {
+		return Tuple{}, Tuple{}, err
+	}
+
+	v, err = itr.collItr.Next()
+
+	if err != nil {
+		return Tuple{}, Tuple{}, err
+	}
+
+	return k, v, nil
+}
+
+func (m Map) RangeIterator(ctx context.Context, startIdx, endIdx uint64) (MapTupleIterator, error) {
+	// newCollRangeItr returns nil if the number of elements being iterated over is 0
+	collItr, err := newCollRangeIter(ctx, m, startIdx, endIdx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &mapRangeIter{collItr: collItr}, nil
 }

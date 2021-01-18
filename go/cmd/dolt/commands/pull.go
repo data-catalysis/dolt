@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,13 +17,13 @@ package commands
 import (
 	"context"
 
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/cli"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/errhand"
-	eventsapi "github.com/liquidata-inc/dolt/go/gen/proto/dolt/services/eventsapi/v1alpha1"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/ref"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/argparser"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/filesys"
+	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
+	eventsapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/eventsapi/v1alpha1"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/ref"
+	"github.com/dolthub/dolt/go/libraries/utils/argparser"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
 )
 
 var pullDocs = cli.CommandDocumentationContent{
@@ -57,6 +57,7 @@ func (cmd PullCmd) CreateMarkdown(fs filesys.Filesys, path, commandStr string) e
 
 func (cmd PullCmd) createArgParser() *argparser.ArgParser {
 	ap := argparser.NewArgParser()
+	ap.SupportsFlag(squashParam, "", "Merges changes to the working set without updating the commit history")
 	return ap
 }
 
@@ -70,43 +71,63 @@ func (cmd PullCmd) Exec(ctx context.Context, commandStr string, args []string, d
 	ap := cmd.createArgParser()
 	help, usage := cli.HelpAndUsagePrinters(cli.GetCommandDocumentation(commandStr, pullDocs, ap))
 	apr := cli.ParseArgs(ap, args, help)
-	branch := dEnv.RepoState.CWBHeadRef()
 
-	var verr errhand.VerboseError
-	var remoteName string
-	if apr.NArg() > 1 {
-		verr = errhand.BuildDError("").SetPrintUsage().Build()
-	} else {
-		if apr.NArg() == 1 {
-			remoteName = apr.Arg(0)
-		}
-
-		var refSpecs []ref.RemoteRefSpec
-		refSpecs, verr = dEnv.GetRefSpecs(remoteName)
-
-		if verr == nil {
-			if len(refSpecs) == 0 {
-				verr = errhand.BuildDError("error: no refspec for remote").Build()
-			} else {
-				remote := dEnv.RepoState.Remotes[refSpecs[0].GetRemote()]
-
-				for _, refSpec := range refSpecs {
-					if remoteTrackRef := refSpec.DestRef(branch); remoteTrackRef != nil {
-						verr = pullRemoteBranch(ctx, dEnv, remote, branch, remoteTrackRef)
-
-						if verr != nil {
-							break
-						}
-					}
-				}
-			}
-		}
-	}
+	verr := pullFromRemote(ctx, dEnv, apr)
 
 	return HandleVErrAndExitCode(verr, usage)
 }
 
-func pullRemoteBranch(ctx context.Context, dEnv *env.DoltEnv, r env.Remote, srcRef, destRef ref.DoltRef) errhand.VerboseError {
+func pullFromRemote(ctx context.Context, dEnv *env.DoltEnv, apr *argparser.ArgParseResults) errhand.VerboseError {
+	if apr.NArg() > 1 {
+		return errhand.BuildDError("dolt pull takes at most one arg").SetPrintUsage().Build()
+	}
+
+	branch := dEnv.RepoState.CWBHeadRef()
+
+	var remoteName string
+	if apr.NArg() == 1 {
+		remoteName = apr.Arg(0)
+	}
+
+	refSpecs, verr := dEnv.GetRefSpecs(remoteName)
+	if verr != nil {
+		return verr
+	}
+
+	if len(refSpecs) == 0 {
+		return errhand.BuildDError("error: no refspec for remote").Build()
+	}
+
+	remote := dEnv.RepoState.Remotes[refSpecs[0].GetRemote()]
+
+	for _, refSpec := range refSpecs {
+		remoteTrackRef := refSpec.DestRef(branch)
+
+		if remoteTrackRef != nil {
+			verr = pullRemoteBranch(ctx, apr, dEnv, remote, branch, remoteTrackRef)
+
+			if verr != nil {
+				return verr
+			}
+		}
+	}
+
+	srcDB, err := remote.GetRemoteDB(ctx, dEnv.DoltDB.ValueReadWriter().Format())
+
+	if err != nil {
+		return errhand.BuildDError("error: failed to get remote db").AddCause(err).Build()
+	}
+
+	verr = fetchFollowTags(ctx, dEnv, srcDB, dEnv.DoltDB)
+
+	if verr != nil {
+		return verr
+	}
+
+	return nil
+}
+
+func pullRemoteBranch(ctx context.Context, apr *argparser.ArgParseResults, dEnv *env.DoltEnv, r env.Remote, srcRef, destRef ref.DoltRef) errhand.VerboseError {
 	srcDB, err := r.GetRemoteDB(ctx, dEnv.DoltDB.ValueReadWriter().Format())
 
 	if err != nil {
@@ -125,5 +146,5 @@ func pullRemoteBranch(ctx context.Context, dEnv *env.DoltEnv, r env.Remote, srcR
 		return errhand.BuildDError("error: fetch failed").AddCause(err).Build()
 	}
 
-	return mergeCommitSpec(ctx, dEnv, destRef.String())
+	return mergeCommitSpec(ctx, apr, dEnv, destRef.String())
 }

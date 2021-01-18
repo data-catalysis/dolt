@@ -1,4 +1,4 @@
-// Copyright 2019-2020 Liquidata, Inc.
+// Copyright 2019-2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,20 +28,20 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/errhand"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/creds"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/dbfactory"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/grpcendpoint"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/ref"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema/encoding"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/typed/noms"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/filesys"
-	"github.com/liquidata-inc/dolt/go/store/hash"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
+	"github.com/dolthub/dolt/go/libraries/doltcore/creds"
+	"github.com/dolthub/dolt/go/libraries/doltcore/dbfactory"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/grpcendpoint"
+	"github.com/dolthub/dolt/go/libraries/doltcore/ref"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema/encoding"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/typed/noms"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 const (
@@ -367,8 +367,55 @@ func (dEnv *DoltEnv) UpdateWorkingRoot(ctx context.Context, newRoot *doltdb.Root
 	return dEnv.RepoStateWriter().SetWorkingHash(ctx, h)
 }
 
+type repoStateReader struct {
+	dEnv *DoltEnv
+}
+
+func (r *repoStateReader) CWBHeadRef() ref.DoltRef {
+	return r.dEnv.RepoState.CWBHeadRef()
+}
+
+func (r *repoStateReader) CWBHeadSpec() *doltdb.CommitSpec {
+	return r.dEnv.RepoState.CWBHeadSpec()
+}
+
+func (r *repoStateReader) WorkingHash() hash.Hash {
+	return r.dEnv.RepoState.WorkingHash()
+}
+
+func (r *repoStateReader) StagedHash() hash.Hash {
+	return hash.Parse(r.dEnv.RepoState.Staged)
+}
+
+func (r *repoStateReader) IsMergeActive() bool {
+	return r.dEnv.RepoState.Merge != nil
+}
+
+func (r *repoStateReader) GetMergeCommit() string {
+	return r.dEnv.RepoState.Merge.Commit
+}
+
+func (r *repoStateReader) GetAllValidDocDetails() ([]doltdb.DocDetails, error) {
+	return r.dEnv.GetAllValidDocDetails()
+}
+
+func (dEnv *DoltEnv) RepoStateReader() RepoStateReader {
+	return &repoStateReader{dEnv}
+}
+
 type repoStateWriter struct {
 	dEnv *DoltEnv
+}
+
+func (r *repoStateWriter) SetStagedHash(ctx context.Context, h hash.Hash) error {
+	r.dEnv.RepoState.Staged = h.String()
+	err := r.dEnv.RepoState.Save(r.dEnv.FS)
+
+	if err != nil {
+		return ErrStateUpdate
+	}
+
+	return nil
 }
 
 func (r *repoStateWriter) SetWorkingHash(ctx context.Context, h hash.Hash) error {
@@ -382,8 +429,49 @@ func (r *repoStateWriter) SetWorkingHash(ctx context.Context, h hash.Hash) error
 	return nil
 }
 
+func (r *repoStateWriter) ClearMerge() error {
+	return r.dEnv.RepoState.ClearMerge(r.dEnv.FS)
+}
+
+func (r *repoStateWriter) PutDocsToWorking(ctx context.Context, docDetails []doltdb.DocDetails) error {
+	return r.dEnv.PutDocsToWorking(ctx, docDetails)
+}
+
+func (r *repoStateWriter) ResetWorkingDocsToStagedDos(ctx context.Context) error {
+	return r.dEnv.ResetWorkingDocsToStagedDocs(ctx)
+}
+
 func (dEnv *DoltEnv) RepoStateWriter() RepoStateWriter {
 	return &repoStateWriter{dEnv}
+}
+
+type docsReadWriter struct {
+	dEnv *DoltEnv
+}
+
+func (d *docsReadWriter) GetAllValidDocDetails() ([]doltdb.DocDetails, error) {
+	return d.dEnv.GetAllValidDocDetails()
+}
+
+func (d *docsReadWriter) PutDocsToWorking(ctx context.Context, docDetails []doltdb.DocDetails) error {
+	return d.dEnv.PutDocsToWorking(ctx, docDetails)
+}
+
+func (d *docsReadWriter) PutDocsToStaged(ctx context.Context, docDetails []doltdb.DocDetails) (*doltdb.RootValue, error) {
+	return d.dEnv.PutDocsToStaged(ctx, docDetails)
+}
+
+func (d *docsReadWriter) ResetWorkingDocsToStagedDocs(ctx context.Context) error {
+	return d.dEnv.ResetWorkingDocsToStagedDocs(ctx)
+}
+
+// GetDocDetail returns the details of a specific document passed as docName.
+func (d *docsReadWriter) GetDocDetail(docName string) (doc doltdb.DocDetails, err error) {
+	return d.dEnv.GetDocDetail(docName)
+}
+
+func (dEnv *DoltEnv) DocsReadWriter() DocsReadWriter {
+	return &docsReadWriter{dEnv}
 }
 
 func (dEnv *DoltEnv) HeadRoot(ctx context.Context) (*doltdb.RootValue, error) {
@@ -394,6 +482,15 @@ func (dEnv *DoltEnv) HeadRoot(ctx context.Context) (*doltdb.RootValue, error) {
 	}
 
 	return commit.GetRootValue()
+}
+
+func (dEnv *DoltEnv) DbData() DbData {
+	return DbData{
+		Ddb: dEnv.DoltDB,
+		Rsw: dEnv.RepoStateWriter(),
+		Rsr: dEnv.RepoStateReader(),
+		Drw: dEnv.DocsReadWriter(),
+	}
 }
 
 func (dEnv *DoltEnv) StagedRoot(ctx context.Context) (*doltdb.RootValue, error) {
@@ -417,7 +514,8 @@ func (dEnv *DoltEnv) UpdateStagedRoot(ctx context.Context, newRoot *doltdb.RootV
 	return h, nil
 }
 
-func (dEnv *DoltEnv) PutTableToWorking(ctx context.Context, rows types.Map, sch schema.Schema, tableName string) error {
+// todo: move this out of env to actions
+func (dEnv *DoltEnv) PutTableToWorking(ctx context.Context, sch schema.Schema, rows types.Map, indexData types.Map, tableName string) error {
 	root, err := dEnv.WorkingRoot(ctx)
 
 	if err != nil {
@@ -431,7 +529,7 @@ func (dEnv *DoltEnv) PutTableToWorking(ctx context.Context, rows types.Map, sch 
 		return ErrMarshallingSchema
 	}
 
-	tbl, err := doltdb.NewTable(ctx, vrw, schVal, rows, nil)
+	tbl, err := doltdb.NewTable(ctx, vrw, schVal, rows, indexData)
 
 	if err != nil {
 		return err
@@ -812,7 +910,7 @@ func (dEnv *DoltEnv) GetAllValidDocDetails() (docs []doltdb.DocDetails, err erro
 	return docs, nil
 }
 
-func (dEnv *DoltEnv) GetOneDocDetail(docName string) (doc doltdb.DocDetails, err error) {
+func (dEnv *DoltEnv) GetDocDetail(docName string) (doc doltdb.DocDetails, err error) {
 	for _, doc := range *AllValidDocDetails {
 		if doc.DocPk == docName {
 			newerText, err := dEnv.GetLocalFileText(doc.File)
@@ -959,7 +1057,12 @@ func updateDocsOnRoot(ctx context.Context, dEnv *DoltEnv, root *doltdb.RootValue
 
 	me := m.Edit()
 	for _, doc := range docDetails {
-		docRow, exists, err := docTbl.GetRowByPKVals(context.Background(), row.TaggedValues{doltdb.DocNameTag: types.String(doc.DocPk)}, sch)
+		key, err := doltdb.DocTblKeyFromName(docTbl.Format(), doc.DocPk)
+		if err != nil {
+			return nil, err
+		}
+
+		docRow, exists, err := table.GetRow(ctx, docTbl, sch, key)
 		if err != nil {
 			return nil, err
 		}
@@ -968,8 +1071,8 @@ func updateDocsOnRoot(ctx context.Context, dEnv *DoltEnv, root *doltdb.RootValue
 			me = me.Remove(docRow.NomsMapKey(sch))
 		} else if doc.NewerText != nil {
 			docTaggedVals := row.TaggedValues{
-				doltdb.DocNameTag: types.String(doc.DocPk),
-				doltdb.DocTextTag: types.String(doc.NewerText),
+				schema.DocNameTag: types.String(doc.DocPk),
+				schema.DocTextTag: types.String(doc.NewerText),
 			}
 			docRow, err = row.New(types.Format_7_18, sch, docTaggedVals)
 			if err != nil {
@@ -997,8 +1100,8 @@ func createDocsTableOnRoot(ctx context.Context, dEnv *DoltEnv, root *doltdb.Root
 		if doc.NewerText != nil {
 			createTable = true
 			docTaggedVals := row.TaggedValues{
-				doltdb.DocNameTag: types.String(doc.DocPk),
-				doltdb.DocTextTag: types.String(doc.NewerText),
+				schema.DocNameTag: types.String(doc.DocPk),
+				schema.DocTextTag: types.String(doc.NewerText),
 			}
 
 			docRow, err := row.New(types.Format_7_18, DoltDocsSchema, docTaggedVals)
@@ -1030,7 +1133,12 @@ func createDocsTableOnRoot(ctx context.Context, dEnv *DoltEnv, root *doltdb.Root
 			return nil, ErrMarshallingSchema
 		}
 
-		newDocsTbl, err := doltdb.NewTable(ctx, root.VRW(), schVal, *wr.GetMap(), nil)
+		empty, err := types.NewMap(ctx, root.VRW())
+		if err != nil {
+			return nil, err
+		}
+
+		newDocsTbl, err := doltdb.NewTable(ctx, root.VRW(), schVal, wr.GetMap(), empty)
 		if err != nil {
 			return nil, err
 		}

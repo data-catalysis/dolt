@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,19 +17,20 @@ package testcommands
 import (
 	"context"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/commands/cnfcmds"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/errhand"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env/actions"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/merge"
-	dsqle "github.com/liquidata-inc/dolt/go/libraries/doltcore/sqle"
+	"github.com/dolthub/dolt/go/cmd/dolt/commands/cnfcmds"
+	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env/actions"
+	"github.com/dolthub/dolt/go/libraries/doltcore/merge"
+	dsqle "github.com/dolthub/dolt/go/libraries/doltcore/sqle"
 )
 
 type Command interface {
@@ -44,7 +45,7 @@ func (a StageAll) CommandString() string { return "stage_all" }
 
 // Exec executes a StageAll command on a test dolt environment.
 func (a StageAll) Exec(t *testing.T, dEnv *env.DoltEnv) error {
-	return actions.StageAllTables(context.Background(), dEnv)
+	return actions.StageAllTables(context.Background(), dEnv.DbData())
 }
 
 type CommitStaged struct {
@@ -56,12 +57,24 @@ func (c CommitStaged) CommandString() string { return fmt.Sprintf("commit_staged
 
 // Exec executes a CommitStaged command on a test dolt environment.
 func (c CommitStaged) Exec(t *testing.T, dEnv *env.DoltEnv) error {
-	return actions.CommitStaged(context.Background(), dEnv, actions.CommitStagedProps{
+	name, email, err := actions.GetNameAndEmail(dEnv.Config)
+
+	if err != nil {
+		return err
+	}
+
+	dbData := dEnv.DbData()
+
+	_, err = actions.CommitStaged(context.Background(), dbData, actions.CommitStagedProps{
 		Message:          c.Message,
 		Date:             time.Now(),
 		AllowEmpty:       false,
 		CheckForeignKeys: true,
+		Name:             name,
+		Email:            email,
 	})
+
+	return err
 }
 
 type CommitAll struct {
@@ -73,15 +86,27 @@ func (c CommitAll) CommandString() string { return fmt.Sprintf("commit: %s", c.M
 
 // Exec executes a CommitAll command on a test dolt environment.
 func (c CommitAll) Exec(t *testing.T, dEnv *env.DoltEnv) error {
-	err := actions.StageAllTables(context.Background(), dEnv)
+	err := actions.StageAllTables(context.Background(), dEnv.DbData())
 	require.NoError(t, err)
 
-	return actions.CommitStaged(context.Background(), dEnv, actions.CommitStagedProps{
+	name, email, err := actions.GetNameAndEmail(dEnv.Config)
+
+	if err != nil {
+		return err
+	}
+
+	dbData := dEnv.DbData()
+
+	_, err = actions.CommitStaged(context.Background(), dbData, actions.CommitStagedProps{
 		Message:          c.Message,
 		Date:             time.Now(),
 		AllowEmpty:       false,
 		CheckForeignKeys: true,
+		Name:             name,
+		Email:            email,
 	})
+
+	return err
 }
 
 type ResetHard struct{}
@@ -121,12 +146,26 @@ func (q Query) CommandString() string { return fmt.Sprintf("query %s", q.Query) 
 func (q Query) Exec(t *testing.T, dEnv *env.DoltEnv) error {
 	root, err := dEnv.WorkingRoot(context.Background())
 	require.NoError(t, err)
-	sqlDb := dsqle.NewDatabase("dolt", dEnv.DoltDB, dEnv.RepoState, dEnv.RepoStateWriter())
+	sqlDb := dsqle.NewDatabase("dolt", dEnv.DbData())
 	engine, sqlCtx, err := dsqle.NewTestEngine(context.Background(), sqlDb, root)
 	require.NoError(t, err)
 
-	_, _, err = engine.Query(sqlCtx, q.Query)
+	_, iter, err := engine.Query(sqlCtx, q.Query)
+	if err != nil {
+		return err
+	}
 
+	for {
+		_, err := iter.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	err = iter.Close()
 	if err != nil {
 		return err
 	}

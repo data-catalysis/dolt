@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,22 +17,19 @@ package sqle
 import (
 	"context"
 	"fmt"
+	"sync"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/editor"
+	"github.com/dolthub/dolt/go/store/hash"
 )
 
 type dbRoot struct {
 	hashStr string
 	root    *doltdb.RootValue
-}
-
-type dbData struct {
-	ddb *doltdb.DoltDB
-	rsw env.RepoStateWriter
 }
 
 var _ sql.Session = &DoltSession{}
@@ -41,11 +38,28 @@ var _ sql.Session = &DoltSession{}
 type DoltSession struct {
 	sql.Session
 	dbRoots   map[string]dbRoot
-	dbDatas   map[string]dbData
-	dbEditors map[string]*doltdb.TableEditSession
+	dbDatas   map[string]env.DbData
+	dbEditors map[string]*editor.TableEditSession
+	caches    map[string]TableCache
 
 	Username string
 	Email    string
+}
+
+// TableCache is a caches for sql.Tables.
+// Caching schema fetches is a meaningful perf win.
+type TableCache interface {
+	// Get returns a sql.Table from the caches, if it exists for |root|.
+	Get(tableName string, root *doltdb.RootValue) (sql.Table, bool)
+
+	// Put stores a copy of |tbl| corresponding to |root|.
+	Put(tableName string, root *doltdb.RootValue, tbl sql.Table)
+
+	// AllForRoot retrieves all tables from the caches corresponding to |root|.
+	AllForRoot(root *doltdb.RootValue) (map[string]sql.Table, bool)
+
+	// Purge removes all entries from the cache.
+	Clear()
 }
 
 // DefaultDoltSession creates a DoltSession object with default values
@@ -53,8 +67,9 @@ func DefaultDoltSession() *DoltSession {
 	sess := &DoltSession{
 		Session:   sql.NewBaseSession(),
 		dbRoots:   make(map[string]dbRoot),
-		dbDatas:   make(map[string]dbData),
-		dbEditors: make(map[string]*doltdb.TableEditSession),
+		dbDatas:   make(map[string]env.DbData),
+		dbEditors: make(map[string]*editor.TableEditSession),
+		caches:    make(map[string]TableCache),
 		Username:  "",
 		Email:     "",
 	}
@@ -64,14 +79,22 @@ func DefaultDoltSession() *DoltSession {
 // NewDoltSession creates a DoltSession object from a standard sql.Session and 0 or more Database objects.
 func NewDoltSession(ctx context.Context, sqlSess sql.Session, username, email string, dbs ...Database) (*DoltSession, error) {
 	dbRoots := make(map[string]dbRoot)
-	dbDatas := make(map[string]dbData)
-	dbEditors := make(map[string]*doltdb.TableEditSession)
+	dbDatas := make(map[string]env.DbData)
+	dbEditors := make(map[string]*editor.TableEditSession)
 	for _, db := range dbs {
-		dbDatas[db.Name()] = dbData{rsw: db.rsw, ddb: db.ddb}
-		dbEditors[db.Name()] = doltdb.CreateTableEditSession(nil, doltdb.TableEditSessionProps{})
+		dbDatas[db.Name()] = env.DbData{Rsw: db.rsw, Ddb: db.ddb, Rsr: db.rsr, Drw: db.drw}
+		dbEditors[db.Name()] = editor.CreateTableEditSession(nil, editor.TableEditSessionProps{})
 	}
 
-	sess := &DoltSession{sqlSess, dbRoots, dbDatas, dbEditors, username, email}
+	sess := &DoltSession{
+		Session:   sqlSess,
+		dbRoots:   dbRoots,
+		dbDatas:   dbDatas,
+		dbEditors: dbEditors,
+		Username:  username,
+		Email:     email,
+		caches:    make(map[string]TableCache),
+	}
 	for _, db := range dbs {
 		err := sess.AddDB(ctx, db)
 
@@ -88,6 +111,10 @@ func DSessFromSess(sess sql.Session) *DoltSession {
 	return sess.(*DoltSession)
 }
 
+func TableCacheFromSess(sess sql.Session, dbName string) TableCache {
+	return sess.(*DoltSession).caches[dbName]
+}
+
 func (sess *DoltSession) CommitTransaction(ctx *sql.Context) error {
 	currentDb := sess.GetCurrentDatabase()
 	if currentDb == "" {
@@ -102,12 +129,12 @@ func (sess *DoltSession) CommitTransaction(ctx *sql.Context) error {
 	dbData := sess.dbDatas[currentDb]
 
 	root := dbRoot.root
-	h, err := dbData.ddb.WriteRootValue(ctx, root)
+	h, err := dbData.Ddb.WriteRootValue(ctx, root)
 	if err != nil {
 		return err
 	}
 
-	return dbData.rsw.SetWorkingHash(ctx, h)
+	return dbData.Rsw.SetWorkingHash(ctx, h)
 }
 
 // GetDoltDB returns the *DoltDB for a given database by name
@@ -118,7 +145,70 @@ func (sess *DoltSession) GetDoltDB(dbName string) (*doltdb.DoltDB, bool) {
 		return nil, false
 	}
 
-	return d.ddb, true
+	return d.Ddb, true
+}
+
+func (sess *DoltSession) GetDoltDBRepoStateWriter(dbName string) (env.RepoStateWriter, bool) {
+	d, ok := sess.dbDatas[dbName]
+
+	if !ok {
+		return nil, false
+	}
+
+	return d.Rsw, true
+}
+
+func (sess *DoltSession) GetDoltDBRepoStateReader(dbName string) (env.RepoStateReader, bool) {
+	d, ok := sess.dbDatas[dbName]
+
+	if !ok {
+		return nil, false
+	}
+
+	return d.Rsr, true
+}
+
+func (sess *DoltSession) GetDoltDBDocsReadWriter(dbName string) (env.DocsReadWriter, bool) {
+	d, ok := sess.dbDatas[dbName]
+
+	if !ok {
+		return nil, false
+	}
+
+	return d.Drw, true
+}
+
+func (sess *DoltSession) GetDbData(dbName string) (env.DbData, bool) {
+	ddb, ok := sess.GetDoltDB(dbName)
+
+	if !ok {
+		return env.DbData{}, false
+	}
+
+	rsr, ok := sess.GetDoltDBRepoStateReader(dbName)
+
+	if !ok {
+		return env.DbData{}, false
+	}
+
+	rsw, ok := sess.GetDoltDBRepoStateWriter(dbName)
+
+	if !ok {
+		return env.DbData{}, false
+	}
+
+	drw, ok := sess.GetDoltDBDocsReadWriter(dbName)
+
+	if !ok {
+		return env.DbData{}, false
+	}
+
+	return env.DbData{
+		Ddb: ddb,
+		Rsr: rsr,
+		Rsw: rsw,
+		Drw: drw,
+	}, true
 }
 
 // GetRoot returns the current *RootValue for a given database associated with the session
@@ -154,7 +244,7 @@ func (sess *DoltSession) GetParentCommit(ctx context.Context, dbName string) (*d
 		return nil, hash.Hash{}, err
 	}
 
-	cm, err := dbd.ddb.Resolve(ctx, cs, nil)
+	cm, err := dbd.Ddb.Resolve(ctx, cs, nil)
 
 	if err != nil {
 		return nil, hash.Hash{}, err
@@ -183,7 +273,7 @@ func (sess *DoltSession) Set(ctx context.Context, key string, typ sql.Type, valu
 			return err
 		}
 
-		cm, err := dbd.ddb.Resolve(ctx, cs, nil)
+		cm, err := dbd.Ddb.Resolve(ctx, cs, nil)
 
 		if err != nil {
 			return err
@@ -221,6 +311,8 @@ func (sess *DoltSession) Set(ctx context.Context, key string, typ sql.Type, valu
 			return err
 		}
 
+		sess.caches[dbName].Clear()
+
 		return nil
 	}
 
@@ -250,11 +342,14 @@ func (sess *DoltSession) AddDB(ctx context.Context, db Database) error {
 	name := db.Name()
 	rsr := db.GetStateReader()
 	rsw := db.GetStateWriter()
+	drw := db.GetDocsReadWriter()
 	ddb := db.GetDoltDB()
 
-	sess.dbDatas[db.Name()] = dbData{rsw: rsw, ddb: ddb}
+	sess.dbDatas[db.Name()] = env.DbData{Drw: drw, Rsr: rsr, Rsw: rsw, Ddb: ddb}
 
-	sess.dbEditors[db.Name()] = doltdb.CreateTableEditSession(nil, doltdb.TableEditSessionProps{})
+	sess.dbEditors[db.Name()] = editor.CreateTableEditSession(nil, editor.TableEditSessionProps{})
+
+	sess.caches[db.name] = newTableCache()
 
 	cs := rsr.CWBHeadSpec()
 
@@ -271,4 +366,71 @@ func (sess *DoltSession) AddDB(ctx context.Context, db Database) error {
 	}
 
 	return sess.Set(ctx, name+HeadKeySuffix, sql.Text, h.String())
+}
+
+func newTableCache() TableCache {
+	return tableCache{
+		mu:     &sync.Mutex{},
+		tables: make(map[*doltdb.RootValue]map[string]sql.Table),
+	}
+}
+
+type tableCache struct {
+	mu     *sync.Mutex
+	tables map[*doltdb.RootValue]map[string]sql.Table
+}
+
+var _ TableCache = tableCache{}
+
+func (tc tableCache) Get(tableName string, root *doltdb.RootValue) (sql.Table, bool) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	tablesForRoot, ok := tc.tables[root]
+
+	if !ok {
+		return nil, false
+	}
+
+	tbl, ok := tablesForRoot[tableName]
+
+	return tbl, ok
+}
+
+func (tc tableCache) Put(tableName string, root *doltdb.RootValue, tbl sql.Table) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	tablesForRoot, ok := tc.tables[root]
+
+	if !ok {
+		tablesForRoot = make(map[string]sql.Table)
+		tc.tables[root] = tablesForRoot
+	}
+
+	tablesForRoot[tableName] = tbl
+}
+
+func (tc tableCache) AllForRoot(root *doltdb.RootValue) (map[string]sql.Table, bool) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	tablesForRoot, ok := tc.tables[root]
+
+	if ok {
+		copyOf := make(map[string]sql.Table, len(tablesForRoot))
+		for name, tbl := range tablesForRoot {
+			copyOf[name] = tbl
+		}
+
+		return copyOf, true
+	}
+
+	return nil, false
+}
+
+func (tc tableCache) Clear() {
+	for rt := range tc.tables {
+		delete(tc.tables, rt)
+	}
 }

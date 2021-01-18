@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,20 +24,22 @@ package datas
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"io/ioutil"
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/liquidata-inc/dolt/go/store/chunks"
-	"github.com/liquidata-inc/dolt/go/store/d"
-	"github.com/liquidata-inc/dolt/go/store/hash"
-	"github.com/liquidata-inc/dolt/go/store/nbs"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/chunks"
+	"github.com/dolthub/dolt/go/store/d"
+	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/nbs"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 const datasetID = "ds1"
@@ -370,6 +372,23 @@ func buildListOfHeight(height int, vrw types.ValueReadWriter) types.List {
 	return l
 }
 
+type TestFailingTableFile struct {
+	fileID    string
+	numChunks int
+}
+
+func (ttf *TestFailingTableFile) FileID() string {
+	return ttf.fileID
+}
+
+func (ttf *TestFailingTableFile) NumChunks() int {
+	return ttf.numChunks
+}
+
+func (ttf *TestFailingTableFile) Open(ctx context.Context) (io.ReadCloser, error) {
+	return ioutil.NopCloser(bytes.NewReader([]byte{0x00})), errors.New("this is a test error")
+}
+
 type TestTableFile struct {
 	fileID    string
 	numChunks int
@@ -403,6 +422,8 @@ func (ttfWr *TestTableFileWriter) Close(ctx context.Context) error {
 	data := ttfWr.writer.Bytes()
 	ttfWr.writer = nil
 
+	ttfWr.ttfs.mu.Lock()
+	defer ttfWr.ttfs.mu.Unlock()
 	ttfWr.ttfs.tableFiles[ttfWr.fileID] = &TestTableFile{ttfWr.fileID, ttfWr.numChunks, data}
 	return nil
 }
@@ -410,9 +431,14 @@ func (ttfWr *TestTableFileWriter) Close(ctx context.Context) error {
 type TestTableFileStore struct {
 	root       hash.Hash
 	tableFiles map[string]*TestTableFile
+	mu         sync.Mutex
 }
 
+var _ nbs.TableFileStore = &TestTableFileStore{}
+
 func (ttfs *TestTableFileStore) Sources(ctx context.Context) (hash.Hash, []nbs.TableFile, error) {
+	ttfs.mu.Lock()
+	defer ttfs.mu.Unlock()
 	var tblFiles []nbs.TableFile
 	for _, tblFile := range ttfs.tableFiles {
 		tblFiles = append(tblFiles, tblFile)
@@ -422,6 +448,8 @@ func (ttfs *TestTableFileStore) Sources(ctx context.Context) (hash.Hash, []nbs.T
 }
 
 func (ttfs *TestTableFileStore) Size(ctx context.Context) (uint64, error) {
+	ttfs.mu.Lock()
+	defer ttfs.mu.Unlock()
 	sz := uint64(0)
 	for _, tblFile := range ttfs.tableFiles {
 		sz += uint64(len(tblFile.data))
@@ -445,11 +473,32 @@ func (ttfs *TestTableFileStore) SetRootChunk(ctx context.Context, root, previous
 	return nil
 }
 
+type FlakeyTestTableFileStore struct {
+	*TestTableFileStore
+	GoodNow bool
+}
+
+func (f *FlakeyTestTableFileStore) Sources(ctx context.Context) (hash.Hash, []nbs.TableFile, error) {
+	if !f.GoodNow {
+		f.GoodNow = true
+		r, files, _ := f.TestTableFileStore.Sources(ctx)
+		for i := range files {
+			files[i] = &TestFailingTableFile{files[i].FileID(), files[i].NumChunks()}
+		}
+		return r, files, nil
+	}
+	return f.TestTableFileStore.Sources(ctx)
+}
+
 func (ttfs *TestTableFileStore) SupportedOperations() nbs.TableFileStoreOps {
 	return nbs.TableFileStoreOps{
 		CanRead:  true,
 		CanWrite: true,
 	}
+}
+
+func (ttfs *TestTableFileStore) PruneTableFiles(ctx context.Context) error {
+	return chunks.ErrUnsupportedOperation
 }
 
 func TestClone(t *testing.T) {
@@ -498,4 +547,25 @@ func TestClone(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, reflect.DeepEqual(src, dest))
+
+	t.Run("WithFlakeyTableFileStore", func(t *testing.T) {
+		// After a Clone()'s TableFile.Open() or a Read from the TableFile
+		// fails, we retry with newly fetched Sources().
+		flakeySrc := &FlakeyTestTableFileStore{
+			TestTableFileStore: src,
+		}
+
+		dest = &TestTableFileStore{
+			root:       hash.Hash{},
+			tableFiles: map[string]*TestTableFile{},
+		}
+
+		err := clone(ctx, flakeySrc, dest, nil)
+		require.NoError(t, err)
+
+		err = dest.SetRootChunk(ctx, flakeySrc.root, hash.Hash{})
+		require.NoError(t, err)
+
+		assert.True(t, reflect.DeepEqual(flakeySrc.TestTableFileStore, dest))
+	})
 }

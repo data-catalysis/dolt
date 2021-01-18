@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -45,7 +45,7 @@ func TestFixedBufferTableSink(t *testing.T) {
 
 func TestBufferedFileByteSink(t *testing.T) {
 	createSink := func() ByteSink {
-		sink, err := NewBufferedFileByteSink(4*1024, 16)
+		sink, err := NewBufferedFileByteSink("", 4*1024, 16)
 		require.NoError(t, err)
 
 		return sink

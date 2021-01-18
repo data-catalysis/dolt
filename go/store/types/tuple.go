@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,10 +24,72 @@ package types
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"strings"
+	"sync"
 
-	"github.com/liquidata-inc/dolt/go/store/d"
+	"github.com/dolthub/dolt/go/store/d"
 )
+
+var _ LesserValuable = TupleValueSlice(nil)
+
+type TupleValueSlice []Value
+
+func (tvs TupleValueSlice) Kind() NomsKind {
+	return TupleKind
+}
+
+func (tvs TupleValueSlice) Less(nbf *NomsBinFormat, other LesserValuable) (bool, error) {
+	switch typedOther := other.(type) {
+	case Tuple:
+		val, err := NewTuple(nbf, tvs...)
+
+		if err != nil {
+			return false, err
+		}
+
+		return typedOther.Less(nbf, val)
+
+	case TupleValueSlice:
+		myLen := len(tvs)
+		otherLen := len(typedOther)
+		largerLen := myLen
+		if otherLen > largerLen {
+			largerLen = otherLen
+		}
+
+		var val Value
+		var otherVal Value
+		for i := 0; i < largerLen; i++ {
+			if i < myLen {
+				val = tvs[i]
+			}
+
+			if i < otherLen {
+				otherVal = typedOther[i]
+			}
+
+			if val == nil {
+				return true, nil
+			} else if otherVal == nil {
+				return false, nil
+			}
+
+			if !val.Equals(otherVal) {
+				return val.Less(nbf, otherVal)
+			}
+		}
+
+		return false, nil
+	default:
+		return TupleKind < other.Kind(), nil
+	}
+}
+
+func (tvs TupleValueSlice) Value(ctx context.Context) (Value, error) {
+	panic("not implemented")
+}
 
 func EmptyTuple(nbf *NomsBinFormat) Tuple {
 	t, err := NewTuple(nbf)
@@ -36,8 +98,24 @@ func EmptyTuple(nbf *NomsBinFormat) Tuple {
 	return t
 }
 
+func newTupleIterator() interface{} {
+	return &TupleIterator{}
+}
+
+type tupleItrPair struct {
+	thisItr  *TupleIterator
+	otherItr *TupleIterator
+}
+
+func newTupleIteratorPair() interface{} {
+	return &tupleItrPair{&TupleIterator{}, &TupleIterator{}}
+}
+
+var TupleItrPool = &sync.Pool{New: newTupleIterator}
+var tupItrPairPool = &sync.Pool{New: newTupleIteratorPair}
+
 type TupleIterator struct {
-	dec   valueDecoder
+	dec   *valueDecoder
 	count uint64
 	pos   uint64
 	nbf   *NomsBinFormat
@@ -59,6 +137,24 @@ func (itr *TupleIterator) Next() (uint64, Value, error) {
 	return itr.count, nil, nil
 }
 
+func (itr *TupleIterator) CodecReader() (CodecReader, uint64) {
+	return itr.dec, itr.count - itr.pos
+}
+
+func (itr *TupleIterator) Skip() error {
+	if itr.pos < itr.count {
+		err := itr.dec.SkipValue(itr.nbf)
+
+		if err != nil {
+			return err
+		}
+
+		itr.pos++
+	}
+
+	return nil
+}
+
 func (itr *TupleIterator) HasMore() bool {
 	return itr.pos < itr.count
 }
@@ -71,6 +167,37 @@ func (itr *TupleIterator) Pos() uint64 {
 	return itr.pos
 }
 
+func (itr *TupleIterator) InitForTuple(t Tuple) error {
+	return itr.InitForTupleAt(t, 0)
+}
+
+func (itr *TupleIterator) InitForTupleAt(t Tuple, pos uint64) error {
+	if itr.dec == nil {
+		dec := t.decoder()
+		itr.dec = &dec
+	} else {
+		itr.dec.buff = t.buff
+		itr.dec.offset = 0
+		itr.dec.vrw = t.vrw
+	}
+
+	itr.dec.skipKind()
+	count := itr.dec.readCount()
+
+	for i := uint64(0); i < pos; i++ {
+		err := itr.dec.SkipValue(t.format())
+
+		if err != nil {
+			return err
+		}
+	}
+
+	itr.count = count
+	itr.pos = pos
+	itr.nbf = t.format()
+	return nil
+}
+
 type Tuple struct {
 	valueImpl
 }
@@ -78,11 +205,23 @@ type Tuple struct {
 // readTuple reads the data provided by a decoder and moves the decoder forward.
 func readTuple(nbf *NomsBinFormat, dec *valueDecoder) (Tuple, error) {
 	start := dec.pos()
+	k := dec.PeekKind()
+
+	if k == NullKind {
+		dec.skipKind()
+		return EmptyTuple(nbf), nil
+	}
+
+	if k != TupleKind {
+		return Tuple{}, errors.New("current value is not a tuple")
+	}
+
 	err := skipTuple(nbf, dec)
 
 	if err != nil {
-		return EmptyTuple(nbf), err
+		return Tuple{}, err
 	}
+
 	end := dec.pos()
 	return Tuple{valueImpl{dec.vrw, nbf, dec.byteSlice(start, end), nil}}, nil
 }
@@ -91,7 +230,7 @@ func skipTuple(nbf *NomsBinFormat, dec *valueDecoder) error {
 	dec.skipKind()
 	count := dec.readCount()
 	for i := uint64(0); i < count; i++ {
-		err := dec.skipValue(nbf)
+		err := dec.SkipValue(nbf)
 
 		if err != nil {
 			return err
@@ -170,6 +309,34 @@ func (t Tuple) WalkValues(ctx context.Context, cb ValueCallback) error {
 	return nil
 }
 
+// PrefixEquals returns whether the given Tuple and calling Tuple have equivalent values up to the given count. Useful
+// for testing Tuple equality for partial keys. If the Tuples are not of the same length, and one Tuple's length is less
+// than the given count, then this returns false. If the Tuples are of the same length and they're both less than the
+// given count, then this function is equivalent to Equals.
+func (t Tuple) PrefixEquals(ctx context.Context, other Tuple, prefixCount uint64) (bool, error) {
+	tDec, tCount := t.decoderSkipToFields()
+	otherDec, otherCount := other.decoderSkipToFields()
+	if tCount == otherCount && tCount < prefixCount {
+		return t.Equals(other), nil
+	} else if tCount != otherCount && (tCount < prefixCount || otherCount < prefixCount) {
+		return false, nil
+	}
+	for i := uint64(0); i < prefixCount; i++ {
+		val, err := tDec.readValue(t.format())
+		if err != nil {
+			return false, err
+		}
+		otherVal, err := otherDec.readValue(t.format())
+		if err != nil {
+			return false, err
+		}
+		if !val.Equals(otherVal) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 func (t Tuple) typeOf() (*Type, error) {
 	dec, count := t.decoderSkipToFields()
 	ts := make(typeSlice, 0, count)
@@ -222,6 +389,9 @@ func (t Tuple) decoderSkipToFields() (valueDecoder, uint64) {
 
 // Len is the number of fields in the struct.
 func (t Tuple) Len() uint64 {
+	if len(t.buff) == 0 {
+		return 0
+	}
 	_, count := t.decoderSkipToFields()
 	return count
 }
@@ -235,22 +405,39 @@ func (t Tuple) Iterator() (*TupleIterator, error) {
 }
 
 func (t Tuple) IteratorAt(pos uint64) (*TupleIterator, error) {
+	itr := &TupleIterator{}
+	err := itr.InitForTupleAt(t, pos)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return itr, nil
+}
+
+func (t Tuple) AsSlice() (TupleValueSlice, error) {
 	dec, count := t.decoderSkipToFields()
 
-	for i := uint64(0); i < pos; i++ {
-		err := dec.skipValue(t.format())
+	sl := make(TupleValueSlice, count)
+	for pos := uint64(0); pos < count; pos++ {
+		val, err := dec.readValue(t.nbf)
 
 		if err != nil {
 			return nil, err
 		}
+
+		sl[pos] = val
 	}
 
-	return &TupleIterator{dec, count, pos, t.format()}, nil
+	return sl, nil
 }
 
 // IterFields iterates over the fields, calling cb for every field in the tuple until cb returns false
 func (t Tuple) IterFields(cb func(index uint64, value Value) (stop bool, err error)) error {
-	itr, err := t.Iterator()
+	itr := TupleItrPool.Get().(*TupleIterator)
+	defer TupleItrPool.Put(itr)
+
+	err := itr.InitForTuple(t)
 
 	if err != nil {
 		return err
@@ -286,7 +473,7 @@ func (t Tuple) Get(n uint64) (Value, error) {
 	}
 
 	for i := uint64(0); i < n; i++ {
-		err := dec.skipValue(t.format())
+		err := dec.SkipValue(t.format())
 
 		if err != nil {
 			return nil, err
@@ -360,7 +547,7 @@ func (t Tuple) splitFieldsAt(n uint64) (prolog, head, tail []byte, count uint64,
 	fieldsOffset := dec.offset
 
 	for i := uint64(0); i < n; i++ {
-		err := dec.skipValue(t.format())
+		err := dec.SkipValue(t.format())
 
 		if err != nil {
 			return nil, nil, nil, 0, false, err
@@ -370,7 +557,7 @@ func (t Tuple) splitFieldsAt(n uint64) (prolog, head, tail []byte, count uint64,
 	head = dec.buff[fieldsOffset:dec.offset]
 
 	if n != count-1 {
-		err := dec.skipValue(t.format())
+		err := dec.SkipValue(t.format())
 
 		if err != nil {
 			return nil, nil, nil, 0, false, err
@@ -382,39 +569,20 @@ func (t Tuple) splitFieldsAt(n uint64) (prolog, head, tail []byte, count uint64,
 	return
 }
 
-/*func (t Tuple) Equals(otherVal Value) bool {
-	if otherTuple, ok := otherVal.(Tuple); ok {
-		itr := t.Iterator()
-		otherItr := otherTuple.Iterator()
-
-		if itr.Len() != otherItr.Len() {
-			return false
-		}
-
-		for itr.HasMore() {
-			_, val := itr.Next()
-			_, otherVal := otherItr.Next()
-
-			if !val.Equals(otherVal) {
-				return false
-			}
-		}
-
-		return true
-	}
-
-	return false
-}*/
-
 func (t Tuple) Less(nbf *NomsBinFormat, other LesserValuable) (bool, error) {
 	if otherTuple, ok := other.(Tuple); ok {
-		itr, err := t.Iterator()
+		itrs := tupItrPairPool.Get().(*tupleItrPair)
+		defer tupItrPairPool.Put(itrs)
+
+		itr := itrs.thisItr
+		err := itr.InitForTuple(t)
 
 		if err != nil {
 			return false, err
 		}
 
-		otherItr, err := otherTuple.Iterator()
+		otherItr := itrs.otherItr
+		err = otherItr.InitForTuple(otherTuple)
 
 		if err != nil {
 			return false, err
@@ -449,59 +617,31 @@ func (t Tuple) Less(nbf *NomsBinFormat, other LesserValuable) (bool, error) {
 	return TupleKind < other.Kind(), nil
 }
 
-// CountDifferencesBetweenTupleFields returns the number of fields that are different between two
-// tuples and does not panic if tuples are different lengths.
-func (t Tuple) CountDifferencesBetweenTupleFields(other Tuple) (uint64, error) {
-	changed := 0
-	tMap, err := t.fieldsToMap()
-	otherMap, err := other.fieldsToMap()
-
-	if err != nil {
-		return 0, err
-	}
-
-	for i, v := range tMap {
-		ov, ok := otherMap[i]
-		if !ok || !v.Equals(ov) {
-			changed++
-		}
-	}
-
-	for i := range otherMap {
-		if tMap[i] == nil {
-			changed++
-		}
-	}
-
-	return uint64(changed), nil
-}
-
-func (t Tuple) fieldsToMap() (map[Value]Value, error) {
-	valMap := make(map[Value]Value)
-
-	err := t.IterFields(func(index uint64, val Value) (stop bool, err error) {
-		if index%2 == 0 {
-			value, err := t.Get(index + 1)
-			if err != nil {
-				return true, err
-			}
-			valMap[val] = value
-		}
-
-		return false, nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return valMap, nil
-}
-
 func (t Tuple) StartsWith(otherTuple Tuple) bool {
 	tplDec, _ := t.decoderSkipToFields()
 	otherDec, _ := otherTuple.decoderSkipToFields()
 	return bytes.HasPrefix(tplDec.buff[tplDec.offset:], otherDec.buff[otherDec.offset:])
+}
+
+func (t Tuple) Contains(v Value) (bool, error) {
+	itr := TupleItrPool.Get().(*TupleIterator)
+	defer TupleItrPool.Put(itr)
+
+	err := itr.InitForTuple(t)
+	if err != nil {
+		return false, err
+	}
+
+	for itr.HasMore() {
+		_, tupleVal, err := itr.Next()
+		if err != nil {
+			return false, err
+		}
+		if tupleVal.Equals(v) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (t Tuple) readFrom(nbf *NomsBinFormat, b *binaryNomsReader) (Value, error) {
@@ -513,9 +653,41 @@ func (t Tuple) skip(nbf *NomsBinFormat, b *binaryNomsReader) {
 }
 
 func (t Tuple) String() string {
-	panic("unreachable")
+	b := strings.Builder{}
+
+	iter := TupleItrPool.Get().(*TupleIterator)
+	defer TupleItrPool.Put(iter)
+
+	err := iter.InitForTuple(t)
+	if err != nil {
+		b.WriteString(err.Error())
+		return b.String()
+	}
+
+	b.WriteString("Tuple(")
+
+	seenOne := false
+	for {
+		_, v, err := iter.Next()
+		if v == nil {
+			break
+		}
+		if err != nil {
+			b.WriteString(err.Error())
+			return b.String()
+		}
+
+		if seenOne {
+			b.WriteString(", ")
+		}
+		seenOne = true
+
+		b.WriteString(v.HumanReadableString())
+	}
+	b.WriteString(")")
+	return b.String()
 }
 
 func (t Tuple) HumanReadableString() string {
-	panic("unreachable")
+	return t.String()
 }

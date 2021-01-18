@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,17 +18,19 @@ import (
 	"context"
 	"testing"
 
+	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/google/uuid"
-	"github.com/liquidata-inc/go-mysql-server/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/dtestutils"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	. "github.com/liquidata-inc/dolt/go/libraries/doltcore/sql/sqltestutil"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	. "github.com/dolthub/dolt/go/libraries/doltcore/sql/sqltestutil"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dtables"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 // Set to the name of a single test to run just that test, useful for debugging
@@ -406,8 +408,8 @@ var systemTableInsertTests = []InsertTest{
 	{
 		Name: "insert into dolt_query_catalog",
 		AdditionalSetup: CreateTableFn(doltdb.DoltQueryCatalogTableName,
-			DoltQueryCatalogSchema,
-			NewRowWithSchema(DoltQueryCatalogSchema,
+			dtables.DoltQueryCatalogSchema,
+			NewRowWithSchema(dtables.DoltQueryCatalogSchema,
 				types.String("existingEntry"),
 				types.Uint(2),
 				types.String("example"),
@@ -415,19 +417,19 @@ var systemTableInsertTests = []InsertTest{
 				types.String("description"))),
 		InsertQuery: "insert into dolt_query_catalog (id, display_order, name, query, description) values ('abc123', 1, 'example', 'select 1+1 from dual', 'description')",
 		SelectQuery: "select * from dolt_query_catalog",
-		ExpectedRows: ToSqlRows(CompressSchema(DoltQueryCatalogSchema),
+		ExpectedRows: ToSqlRows(CompressSchema(dtables.DoltQueryCatalogSchema),
 			NewRow(types.String("abc123"), types.Uint(1), types.String("example"), types.String("select 1+1 from dual"), types.String("description")),
 			NewRow(types.String("existingEntry"), types.Uint(2), types.String("example"), types.String("select 2+2 from dual"), types.String("description")),
 		),
-		ExpectedSchema: CompressSchema(DoltQueryCatalogSchema),
+		ExpectedSchema: CompressSchema(dtables.DoltQueryCatalogSchema),
 	},
 	{
 		Name:            "insert into dolt_schemas",
 		AdditionalSetup: CreateTableFn(doltdb.SchemasTableName, schemasTableDoltSchema()),
-		InsertQuery:     "insert into dolt_schemas (type, name, fragment) values ('view', 'name', 'select 2+2 from dual')",
+		InsertQuery:     "insert into dolt_schemas (id, type, name, fragment) values (1, 'view', 'name', 'select 2+2 from dual')",
 		SelectQuery:     "select * from dolt_schemas",
 		ExpectedRows: ToSqlRows(CompressSchema(schemasTableDoltSchema()),
-			NewRow(types.String("view"), types.String("name"), types.String("select 2+2 from dual")),
+			NewRow(types.String("view"), types.String("name"), types.String("select 2+2 from dual"), types.Int(1)),
 		),
 		ExpectedSchema: CompressSchema(schemasTableDoltSchema()),
 	},
@@ -439,7 +441,7 @@ func mustGetDoltSchema(sch sql.Schema, tableName string, testEnv *env.DoltEnv) s
 		panic(err)
 	}
 
-	doltSchema, err := SqlSchemaToDoltSchema(context.Background(), wrt, tableName, sch)
+	doltSchema, err := sqlutil.ToDoltSchema(context.Background(), wrt, tableName, sch)
 	if err != nil {
 		panic(err)
 	}

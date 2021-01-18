@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,14 +16,15 @@ package alterschema
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema/encoding"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema/typeinfo"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema/encoding"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 // Nullable represents whether a column can have a null value.
@@ -44,27 +45,31 @@ type ColumnOrder struct {
 // table, since we must write a value for each row. If the column is not nullable, a default value must be provided.
 //
 // Returns an error if the column added conflicts with the existing schema in tag or name.
-func AddColumnToTable(ctx context.Context, root *doltdb.RootValue, tbl *doltdb.Table, tblName string, tag uint64, newColName string, typeInfo typeinfo.TypeInfo, nullable Nullable, defaultVal types.Value, order *ColumnOrder) (*doltdb.Table, error) {
+func AddColumnToTable(ctx context.Context, root *doltdb.RootValue, tbl *doltdb.Table, tblName string, tag uint64, newColName string, typeInfo typeinfo.TypeInfo, nullable Nullable, defaultVal, comment string, order *ColumnOrder) (*doltdb.Table, error) {
 	sch, err := tbl.GetSchema(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	if schema.IsKeyless(sch) {
+		return nil, ErrKeylessAltTbl
 	}
 
 	if err := validateNewColumn(ctx, root, tbl, tblName, tag, newColName, typeInfo, nullable, defaultVal); err != nil {
 		return nil, err
 	}
 
-	newSchema, err := addColumnToSchema(sch, tag, newColName, typeInfo, nullable, order)
+	newSchema, err := addColumnToSchema(sch, tag, newColName, typeInfo, nullable, order, defaultVal, comment)
 	if err != nil {
 		return nil, err
 	}
 
-	return updateTableWithNewSchema(ctx, tbl, tag, newSchema, defaultVal)
+	return updateTableWithNewSchema(ctx, tblName, tbl, tag, newSchema, defaultVal)
 }
 
 // updateTableWithNewSchema updates the existing table with a new schema and new values for the new column as necessary,
 // and returns the new table.
-func updateTableWithNewSchema(ctx context.Context, tbl *doltdb.Table, tag uint64, newSchema schema.Schema, defaultVal types.Value) (*doltdb.Table, error) {
+func updateTableWithNewSchema(ctx context.Context, tblName string, tbl *doltdb.Table, tag uint64, newSchema schema.Schema, defaultVal string) (*doltdb.Table, error) {
 	vrw := tbl.ValueReadWriter()
 	newSchemaVal, err := encoding.MarshalSchemaAsNomsValue(ctx, vrw, newSchema)
 	if err != nil {
@@ -72,34 +77,45 @@ func updateTableWithNewSchema(ctx context.Context, tbl *doltdb.Table, tag uint64
 	}
 
 	rowData, err := tbl.GetRowData(ctx)
-
 	if err != nil {
 		return nil, err
 	}
 
 	indexData, err := tbl.GetIndexData(ctx)
-
 	if err != nil {
 		return nil, err
 	}
 
-	if defaultVal == nil {
-		return doltdb.NewTable(ctx, vrw, newSchemaVal, rowData, &indexData)
+	if defaultVal == "" {
+		return doltdb.NewTable(ctx, vrw, newSchemaVal, rowData, indexData)
 	}
 
 	me := rowData.Edit()
 
+	newSqlSchema, err := sqlutil.FromDoltSchema(tblName, newSchema)
+	if err != nil {
+		return nil, err
+	}
+	columnIndex := -1
+	for i, colTag := range newSchema.GetAllCols().Tags {
+		if colTag == tag {
+			columnIndex = i
+			break
+		}
+	}
+	if columnIndex == -1 {
+		return nil, fmt.Errorf("could not find tag `%d` in new schema", tag)
+	}
+
 	err = rowData.Iter(ctx, func(k, v types.Value) (stop bool, err error) {
-		oldRow, _, err := tbl.GetRow(ctx, k.(types.Tuple), newSchema)
+		oldRow, err := row.FromNoms(newSchema, k.(types.Tuple), v.(types.Tuple))
 		if err != nil {
-			return false, err
+			return true, err
 		}
-
-		newRow, err := oldRow.SetColVal(tag, defaultVal, newSchema)
+		newRow, err := sqlutil.ApplyDefaults(ctx, vrw, newSchema, newSqlSchema, []int{columnIndex}, oldRow)
 		if err != nil {
-			return false, err
+			return true, err
 		}
-
 		me.Set(newRow.NomsMapKey(newSchema), newRow.NomsMapValue(newSchema))
 		return false, nil
 	})
@@ -114,12 +130,12 @@ func updateTableWithNewSchema(ctx context.Context, tbl *doltdb.Table, tag uint64
 		return nil, err
 	}
 
-	return doltdb.NewTable(ctx, vrw, newSchemaVal, m, &indexData)
+	return doltdb.NewTable(ctx, vrw, newSchemaVal, m, indexData)
 }
 
 // addColumnToSchema creates a new schema with a column as specified by the params.
-func addColumnToSchema(sch schema.Schema, tag uint64, newColName string, typeInfo typeinfo.TypeInfo, nullable Nullable, order *ColumnOrder) (schema.Schema, error) {
-	newCol, err := createColumn(nullable, newColName, tag, typeInfo)
+func addColumnToSchema(sch schema.Schema, tag uint64, newColName string, typeInfo typeinfo.TypeInfo, nullable Nullable, order *ColumnOrder, defaultVal, comment string) (schema.Schema, error) {
+	newCol, err := createColumn(nullable, newColName, tag, typeInfo, defaultVal, comment)
 	if err != nil {
 		return nil, err
 	}
@@ -143,22 +159,25 @@ func addColumnToSchema(sch schema.Schema, tag uint64, newColName string, typeInf
 	if err != nil {
 		return nil, err
 	}
-	newSch := schema.SchemaFromCols(collection)
+	newSch, err := schema.SchemaFromCols(collection)
+	if err != nil {
+		return nil, err
+	}
 	newSch.Indexes().AddIndex(sch.Indexes().AllIndexes()...)
 
 	return newSch, nil
 }
 
-func createColumn(nullable Nullable, newColName string, tag uint64, typeInfo typeinfo.TypeInfo) (schema.Column, error) {
+func createColumn(nullable Nullable, newColName string, tag uint64, typeInfo typeinfo.TypeInfo, defaultVal, comment string) (schema.Column, error) {
 	if nullable {
-		return schema.NewColumnWithTypeInfo(newColName, tag, typeInfo, false)
+		return schema.NewColumnWithTypeInfo(newColName, tag, typeInfo, false, defaultVal, false, comment)
 	} else {
-		return schema.NewColumnWithTypeInfo(newColName, tag, typeInfo, false, schema.NotNullConstraint{})
+		return schema.NewColumnWithTypeInfo(newColName, tag, typeInfo, false, defaultVal, false, comment, schema.NotNullConstraint{})
 	}
 }
 
 // ValidateNewColumn returns an error if the column as specified cannot be added to the schema given.
-func validateNewColumn(ctx context.Context, root *doltdb.RootValue, tbl *doltdb.Table, tblName string, tag uint64, newColName string, typeInfo typeinfo.TypeInfo, nullable Nullable, defaultVal types.Value) error {
+func validateNewColumn(ctx context.Context, root *doltdb.RootValue, tbl *doltdb.Table, tblName string, tag uint64, newColName string, typeInfo typeinfo.TypeInfo, nullable Nullable, defaultVal string) error {
 	if typeInfo == nil {
 		return fmt.Errorf(`typeinfo may not be nil`)
 	}
@@ -191,20 +210,6 @@ func validateNewColumn(ctx context.Context, root *doltdb.RootValue, tbl *doltdb.
 	}
 	if found {
 		return schema.ErrTagPrevUsed(tag, newColName, tblName)
-	}
-
-	if !nullable && defaultVal == nil {
-		rd, err := tbl.GetRowData(ctx)
-		if err != nil {
-			return err
-		}
-		if rd.Len() > 0 {
-			return errors.New("When adding a column that may not be null to a table with existing rows, a default value must be provided.")
-		}
-	}
-
-	if !types.IsNull(defaultVal) && !typeInfo.IsValid(defaultVal) {
-		return fmt.Errorf("Default value (%v) is invalid for column (%v)", defaultVal, typeInfo.String())
 	}
 
 	return nil

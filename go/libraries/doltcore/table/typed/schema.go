@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
 package typed
 
 import (
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
 )
 
 func TypedSchemaUnion(schemas ...schema.Schema) (schema.Schema, error) {
@@ -38,6 +38,5 @@ func TypedSchemaUnion(schemas ...schema.Schema) (schema.Schema, error) {
 		return nil, err
 	}
 
-	sch := schema.SchemaFromCols(allColColl)
-	return sch, nil
+	return schema.SchemaFromCols(allColColl)
 }

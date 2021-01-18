@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/liquidata-inc/dolt/go/libraries/utils/argparser"
+	"github.com/dolthub/dolt/go/libraries/utils/argparser"
 )
 
 type commandDocumentForMarkdown struct {

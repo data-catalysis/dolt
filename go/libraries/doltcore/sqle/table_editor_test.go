@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,14 +18,15 @@ import (
 	"context"
 	"testing"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/dtestutils"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	. "github.com/liquidata-inc/dolt/go/libraries/doltcore/sql/sqltestutil"
+	"github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	. "github.com/dolthub/dolt/go/libraries/doltcore/sql/sqltestutil"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
 )
 
 type tableEditorTest struct {
@@ -157,7 +158,7 @@ func TestTableEditor(t *testing.T) {
 
 			ctx := NewTestSQLCtx(context.Background())
 			root, _ := dEnv.WorkingRoot(context.Background())
-			db := NewDatabase("dolt", dEnv.DoltDB, dEnv.RepoState, dEnv.RepoStateWriter())
+			db := NewDatabase("dolt", dEnv.DbData())
 			_ = DSessFromSess(ctx.Session).AddDB(ctx, db)
 			ctx.SetCurrentDatabase(db.Name())
 			err := db.SetRoot(ctx, root)
@@ -187,8 +188,8 @@ func TestTableEditor(t *testing.T) {
 	}
 }
 
-func r(row row.Row, sch schema.Schema) sql.Row {
-	sqlRow, err := doltRowToSqlRow(row, sch)
+func r(r row.Row, sch schema.Schema) sql.Row {
+	sqlRow, err := sqlutil.DoltRowToSqlRow(r, sch)
 	if err != nil {
 		panic(err)
 	}

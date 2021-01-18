@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,8 +22,8 @@
 package types
 
 import (
-	"github.com/liquidata-inc/dolt/go/store/chunks"
-	"github.com/liquidata-inc/dolt/go/store/d"
+	"github.com/dolthub/dolt/go/store/chunks"
+	"github.com/dolthub/dolt/go/store/d"
 )
 
 // WalkRefs calls cb() on each Ref that can be decoded from |c|. The results
@@ -160,7 +160,7 @@ func (r *refWalker) walkMetaSequence(nbf *NomsBinFormat, k NomsKind, level uint6
 }
 
 func (r *refWalker) skipOrderedKey(nbf *NomsBinFormat) error {
-	switch r.peekKind() {
+	switch r.PeekKind() {
 	case hashKind:
 		r.skipKind()
 		r.skipHash()
@@ -172,7 +172,7 @@ func (r *refWalker) skipOrderedKey(nbf *NomsBinFormat) error {
 }
 
 func (r *refWalker) walkValue(nbf *NomsBinFormat, cb RefCallback) error {
-	k := r.peekKind()
+	k := r.PeekKind()
 	switch k {
 	case BlobKind:
 		return r.walkBlob(nbf, cb)
@@ -195,7 +195,7 @@ func (r *refWalker) walkValue(nbf *NomsBinFormat, cb RefCallback) error {
 		d.Panic("A value instance can never have type %s", k)
 	default:
 		if IsPrimitiveKind(k) {
-			if emptyVal, ok := KindToType[k]; ok {
+			if emptyVal := KindToType[k]; emptyVal != nil {
 				r.skipKind()
 				emptyVal.skip(nbf, &r.binaryNomsReader)
 				return nil

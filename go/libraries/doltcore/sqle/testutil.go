@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,18 +21,18 @@ import (
 	"io"
 	"strings"
 
-	sqle "github.com/liquidata-inc/go-mysql-server"
-	"github.com/liquidata-inc/go-mysql-server/sql"
-	"github.com/liquidata-inc/vitess/go/vt/sqlparser"
+	sqle "github.com/dolthub/go-mysql-server"
+	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/dolthub/vitess/go/vt/sqlparser"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
 )
 
 // Executes all the SQL non-select statements given in the string against the root value given and returns the updated
 // root, or an error. Statements in the input string are split by `;\n`
 func ExecuteSql(dEnv *env.DoltEnv, root *doltdb.RootValue, statements string) (*doltdb.RootValue, error) {
-	db := NewBatchedDatabase("dolt", dEnv.DoltDB, dEnv.RepoState, dEnv.RepoStateWriter())
+	db := NewBatchedDatabase("dolt", dEnv.DbData())
 	engine, ctx, err := NewTestEngine(context.Background(), db, root)
 
 	if err != nil {
@@ -124,7 +124,15 @@ func NewTestEngine(ctx context.Context, db Database, root *doltdb.RootValue) (*s
 // Executes the select statement given and returns the resulting rows, or an error if one is encountered.
 // This uses the index functionality, which is not ready for prime time. Use with caution.
 func ExecuteSelect(dEnv *env.DoltEnv, ddb *doltdb.DoltDB, root *doltdb.RootValue, query string) ([]sql.Row, error) {
-	db := NewDatabase("dolt", ddb, dEnv.RepoState, dEnv.RepoStateWriter())
+
+	dbData := env.DbData{
+		Ddb: ddb,
+		Rsw: dEnv.RepoStateWriter(),
+		Rsr: dEnv.RepoStateReader(),
+		Drw: dEnv.DocsReadWriter(),
+	}
+
+	db := NewDatabase("dolt", dbData)
 	engine, ctx, err := NewTestEngine(context.Background(), db, root)
 	if err != nil {
 		return nil, err
@@ -152,13 +160,17 @@ func ExecuteSelect(dEnv *env.DoltEnv, ddb *doltdb.DoltDB, root *doltdb.RootValue
 }
 
 func drainIter(iter sql.RowIter) error {
-	var returnedErr error
 	for {
 		_, err := iter.Next()
 		if err == io.EOF {
-			return returnedErr
+			break
 		} else if err != nil {
-			returnedErr = err
+			closeErr := iter.Close()
+			if closeErr != nil {
+				panic(fmt.Errorf("%v\n%v", err, closeErr))
+			}
+			return err
 		}
 	}
+	return iter.Close()
 }

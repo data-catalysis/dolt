@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,9 +18,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/filesys"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 var fieldsA, _ = schema.NewColCollection(
@@ -44,11 +44,11 @@ var fieldsD, _ = schema.NewColCollection(
 	schema.NewColumn("key", 3, types.StringKind, true),
 	schema.NewColumn("value", 4, types.StringKind, false))
 
-var schemaA = schema.SchemaFromCols(fieldsA)
-var schemaB = schema.SchemaFromCols(fieldsB)
-var schemaC = schema.SchemaFromCols(fieldsC)
-var schemaCNoPK = schema.SchemaFromCols(fieldsCNoPK)
-var schemaD = schema.SchemaFromCols(fieldsD)
+var schemaA = schema.MustSchemaFromCols(fieldsA)
+var schemaB = schema.MustSchemaFromCols(fieldsB)
+var schemaC = schema.MustSchemaFromCols(fieldsC)
+var schemaCNoPK = schema.MustSchemaFromCols(fieldsCNoPK)
+var schemaD = schema.MustSchemaFromCols(fieldsD)
 
 func TestFieldMapping(t *testing.T) {
 	tests := []struct {

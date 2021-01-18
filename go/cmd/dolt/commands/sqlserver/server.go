@@ -1,4 +1,4 @@
-// Copyright 2019-2020 Liquidata, Inc.
+// Copyright 2019-2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,20 +20,22 @@ import (
 	"strconv"
 	"time"
 
-	sqle "github.com/liquidata-inc/go-mysql-server"
-	"github.com/liquidata-inc/go-mysql-server/auth"
-	"github.com/liquidata-inc/go-mysql-server/server"
-	"github.com/liquidata-inc/go-mysql-server/sql"
-	"github.com/liquidata-inc/go-mysql-server/sql/analyzer"
-	"github.com/liquidata-inc/vitess/go/mysql"
+	sqle "github.com/dolthub/go-mysql-server"
+	"github.com/dolthub/go-mysql-server/auth"
+	"github.com/dolthub/go-mysql-server/server"
+	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql/analyzer"
+	"github.com/dolthub/go-mysql-server/sql/information_schema"
+	"github.com/dolthub/vitess/go/mysql"
 	"github.com/sirupsen/logrus"
 
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/cli"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/commands"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	dsqle "github.com/liquidata-inc/dolt/go/libraries/doltcore/sqle"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/sqle/dfunctions"
-	_ "github.com/liquidata-inc/dolt/go/libraries/doltcore/sqle/dfunctions"
+	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/dolthub/dolt/go/cmd/dolt/commands"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	dsqle "github.com/dolthub/dolt/go/libraries/doltcore/sqle"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dfunctions"
+	_ "github.com/dolthub/dolt/go/libraries/doltcore/sqle/dfunctions"
+	"github.com/dolthub/dolt/go/libraries/utils/tracing"
 )
 
 // Serve starts a MySQL-compatible server. Returns any errors that were encountered.
@@ -120,7 +122,7 @@ func Serve(ctx context.Context, version string, serverConfig ServerConfig, serve
 		sqlEngine.AddDatabase(db)
 	}
 
-	sqlEngine.AddDatabase(sql.NewInformationSchemaDatabase(sqlEngine.Catalog))
+	sqlEngine.AddDatabase(information_schema.NewInformationSchemaDatabase(sqlEngine.Catalog))
 
 	hostPort := net.JoinHostPort(serverConfig.Host(), strconv.Itoa(serverConfig.Port()))
 	readTimeout := time.Duration(serverConfig.ReadTimeout()) * time.Millisecond
@@ -175,7 +177,8 @@ func newSessionBuilder(sqlEngine *sqle.Engine, username, email string, autocommi
 			ctx,
 			sql.WithIndexRegistry(ir),
 			sql.WithViewRegistry(vr),
-			sql.WithSession(doltSess))
+			sql.WithSession(doltSess),
+			sql.WithTracer(tracing.Tracer(ctx)))
 
 		dbs := dbsAsDSQLDBs(sqlEngine.Catalog.AllDatabases())
 		for _, db := range dbs {
@@ -202,7 +205,7 @@ func newSessionBuilder(sqlEngine *sqle.Engine, username, email string, autocommi
 }
 
 func newDatabase(name string, dEnv *env.DoltEnv) dsqle.Database {
-	return dsqle.NewDatabase(name, dEnv.DoltDB, dEnv.RepoState, dEnv.RepoStateWriter())
+	return dsqle.NewDatabase(name, dEnv.DbData())
 }
 
 func dbsAsDSQLDBs(dbs []sql.Database) []dsqle.Database {

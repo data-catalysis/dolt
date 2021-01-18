@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -130,8 +130,8 @@ func TestActionExecutorError(t *testing.T) {
 		}
 		err := actionExecutor.WaitForEmpty()
 		assert.Error(t, err)
-		sameErr := actionExecutor.WaitForEmpty()
-		assert.Equal(t, err, sameErr)
+		err = actionExecutor.WaitForEmpty()
+		assert.NoError(t, err)
 	}
 }
 

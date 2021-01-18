@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,13 +15,14 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
-	"github.com/liquidata-inc/vitess/go/sqltypes"
+	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/dolthub/vitess/go/sqltypes"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 const (
@@ -69,7 +70,18 @@ func CreateUintTypeFromParams(params map[string]string) (TypeInfo, error) {
 // ConvertNomsValueToValue implements TypeInfo interface.
 func (ti *uintType) ConvertNomsValueToValue(v types.Value) (interface{}, error) {
 	if val, ok := v.(types.Uint); ok {
-		return ti.sqlUintType.Convert(uint64(val))
+		switch ti.sqlUintType {
+		case sql.Uint8:
+			return uint8(val), nil
+		case sql.Uint16:
+			return uint16(val), nil
+		case sql.Uint24:
+			return uint32(val), nil
+		case sql.Uint32:
+			return uint32(val), nil
+		case sql.Uint64:
+			return uint64(val), nil
+		}
 	}
 	if _, ok := v.(types.Null); ok || v == nil {
 		return nil, nil
@@ -77,8 +89,33 @@ func (ti *uintType) ConvertNomsValueToValue(v types.Value) (interface{}, error) 
 	return nil, fmt.Errorf(`"%v" cannot convert NomsKind "%v" to a value`, ti.String(), v.Kind())
 }
 
+// ReadFrom reads a go value from a noms types.CodecReader directly
+func (ti *uintType) ReadFrom(_ *types.NomsBinFormat, reader types.CodecReader) (interface{}, error) {
+	k := reader.ReadKind()
+	switch k {
+	case types.UintKind:
+		val := reader.ReadUint()
+		switch ti.sqlUintType {
+		case sql.Uint8:
+			return uint8(val), nil
+		case sql.Uint16:
+			return uint16(val), nil
+		case sql.Uint24:
+			return uint32(val), nil
+		case sql.Uint32:
+			return uint32(val), nil
+		case sql.Uint64:
+			return val, nil
+		}
+	case types.NullKind:
+		return nil, nil
+	}
+
+	return nil, fmt.Errorf(`"%v" cannot convert NomsKind "%v" to a value`, ti.String(), k)
+}
+
 // ConvertValueToNomsValue implements TypeInfo interface.
-func (ti *uintType) ConvertValueToNomsValue(v interface{}) (types.Value, error) {
+func (ti *uintType) ConvertValueToNomsValue(ctx context.Context, vrw types.ValueReadWriter, v interface{}) (types.Value, error) {
 	if v == nil {
 		return types.NullValue, nil
 	}
@@ -165,8 +202,17 @@ func (ti *uintType) GetTypeParams() map[string]string {
 
 // IsValid implements TypeInfo interface.
 func (ti *uintType) IsValid(v types.Value) bool {
-	_, err := ti.ConvertNomsValueToValue(v)
-	return err == nil
+	if val, ok := v.(types.Uint); ok {
+		_, err := ti.sqlUintType.Convert(uint64(val))
+		if err != nil {
+			return false
+		}
+		return true
+	}
+	if _, ok := v.(types.Null); ok || v == nil {
+		return true
+	}
+	return false
 }
 
 // NomsKind implements TypeInfo interface.
@@ -175,11 +221,16 @@ func (ti *uintType) NomsKind() types.NomsKind {
 }
 
 // ParseValue implements TypeInfo interface.
-func (ti *uintType) ParseValue(str *string) (types.Value, error) {
+func (ti *uintType) ParseValue(ctx context.Context, vrw types.ValueReadWriter, str *string) (types.Value, error) {
 	if str == nil || *str == "" {
 		return types.NullValue, nil
 	}
-	return ti.ConvertValueToNomsValue(*str)
+	return ti.ConvertValueToNomsValue(context.Background(), nil, *str)
+}
+
+// Promote implements TypeInfo interface.
+func (ti *uintType) Promote() TypeInfo {
+	return &uintType{ti.sqlUintType.Promote().(sql.NumberType)}
 }
 
 // String implements TypeInfo interface.

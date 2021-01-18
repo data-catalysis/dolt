@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,12 +15,14 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
+	"math"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
-	"github.com/liquidata-inc/vitess/go/sqltypes"
+	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/dolthub/vitess/go/sqltypes"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 type Identifier string
@@ -68,12 +70,17 @@ var Identifiers = map[Identifier]struct{}{
 // TypeInfo is an interface used for encoding type information.
 type TypeInfo interface {
 	// ConvertNomsValueToValue converts a Noms value to a go value. The expected NomsKind of the given
-	// parameter is equivalent to the NomsKind returned by this type info.
+	// parameter is equivalent to the NomsKind returned by this type info. This is intended for retrieval
+	// from storage, thus we do no validation as we assume the stored value is already validated against
+	// the given type.
 	ConvertNomsValueToValue(v types.Value) (interface{}, error)
+
+	// ReadFrom reads a go value from a noms types.CodecReader directly
+	ReadFrom(nbf *types.NomsBinFormat, reader types.CodecReader) (interface{}, error)
 
 	// ConvertValueToNomsValue converts a go value or Noms value to a Noms value. The type of the Noms
 	// value will be equivalent to the NomsKind returned from NomsKind.
-	ConvertValueToNomsValue(v interface{}) (types.Value, error)
+	ConvertValueToNomsValue(ctx context.Context, vrw types.ValueReadWriter, v interface{}) (types.Value, error)
 
 	// Equals returns whether the given TypeInfo is equivalent to this TypeInfo.
 	Equals(other TypeInfo) bool
@@ -95,7 +102,10 @@ type TypeInfo interface {
 	NomsKind() types.NomsKind
 
 	// ParseValue parses a string and returns a go value that represents it according to this type.
-	ParseValue(str *string) (types.Value, error)
+	ParseValue(ctx context.Context, vrw types.ValueReadWriter, str *string) (types.Value, error)
+
+	// Promote will promote the current TypeInfo to the largest representing TypeInfo of the same kind, such as Int8 to Int64.
+	Promote() TypeInfo
 
 	// ToSqlType returns the TypeInfo as a sql.Type. If an exact match is able to be made then that is
 	// the one returned, otherwise the sql.Type is the closest match possible.
@@ -157,10 +167,6 @@ func FromSqlType(sqlType sql.Type) (TypeInfo, error) {
 		}
 		return &varStringType{stringType}, nil
 	case sqltypes.Blob:
-		//TODO: determine the storage format
-		if fmt.Sprintf("a") != "" { // always evaluates to true, compiler won't complain about unreachable code
-			return nil, fmt.Errorf(`"%v" has not yet been implemented`, sqlType.String())
-		}
 		stringType, ok := sqlType.(sql.StringType)
 		if !ok {
 			return nil, fmt.Errorf(`expected "StringType" from SQL basetype "Blob"`)
@@ -173,15 +179,11 @@ func FromSqlType(sqlType sql.Type) (TypeInfo, error) {
 		}
 		return &varStringType{stringType}, nil
 	case sqltypes.VarBinary:
-		//TODO: determine the storage format
-		if fmt.Sprintf("a") != "" { // always evaluates to true, compiler won't complain about unreachable code
-			return nil, fmt.Errorf(`"%v" has not yet been implemented`, sqlType.String())
-		}
 		stringType, ok := sqlType.(sql.StringType)
 		if !ok {
 			return nil, fmt.Errorf(`expected "StringType" from SQL basetype "VarBinary"`)
 		}
-		return &varBinaryType{stringType}, nil
+		return &inlineBlobType{stringType}, nil
 	case sqltypes.Char:
 		stringType, ok := sqlType.(sql.StringType)
 		if !ok {
@@ -189,15 +191,11 @@ func FromSqlType(sqlType sql.Type) (TypeInfo, error) {
 		}
 		return &varStringType{stringType}, nil
 	case sqltypes.Binary:
-		//TODO: determine the storage format
-		if fmt.Sprintf("a") != "" { // always evaluates to true, compiler won't complain about unreachable code
-			return nil, fmt.Errorf(`"%v" has not yet been implemented`, sqlType.String())
-		}
 		stringType, ok := sqlType.(sql.StringType)
 		if !ok {
 			return nil, fmt.Errorf(`expected "StringType" from SQL basetype "Binary"`)
 		}
-		return &varBinaryType{stringType}, nil
+		return &inlineBlobType{stringType}, nil
 	case sqltypes.Bit:
 		bitSQLType, ok := sqlType.(sql.BitType)
 		if !ok {
@@ -237,7 +235,7 @@ func FromTypeParams(id Identifier, params map[string]string) (TypeInfo, error) {
 	case FloatTypeIdentifier:
 		return CreateFloatTypeFromParams(params)
 	case InlineBlobTypeIdentifier:
-		return InlineBlobType, nil
+		return CreateInlineBlobTypeFromParams(params)
 	case IntTypeIdentifier:
 		return CreateIntTypeFromParams(params)
 	case SetTypeIdentifier:
@@ -269,7 +267,7 @@ func FromKind(kind types.NomsKind) TypeInfo {
 	case types.FloatKind:
 		return Float64Type
 	case types.InlineBlobKind:
-		return InlineBlobType
+		return &inlineBlobType{sql.MustCreateBinary(sqltypes.VarBinary, math.MaxUint16)}
 	case types.IntKind:
 		return Int64Type
 	case types.NullKind:
@@ -284,6 +282,8 @@ func FromKind(kind types.NomsKind) TypeInfo {
 		return Uint64Type
 	case types.UUIDKind:
 		return UuidType
+	case types.DecimalKind:
+		return &decimalType{sql.MustCreateDecimalType(65, 30)}
 	default:
 		panic(fmt.Errorf(`no default type info for NomsKind "%v"`, kind.String()))
 	}
@@ -291,12 +291,12 @@ func FromKind(kind types.NomsKind) TypeInfo {
 
 // Convert takes in a types.Value, as well as the source and destination TypeInfos, and
 // converts the TypeInfo into the applicable types.Value.
-func Convert(v types.Value, srcTi TypeInfo, destTi TypeInfo) (types.Value, error) {
+func Convert(ctx context.Context, vrw types.ValueReadWriter, v types.Value, srcTi TypeInfo, destTi TypeInfo) (types.Value, error) {
 	str, err := srcTi.FormatValue(v)
 	if err != nil {
 		return nil, err
 	}
-	val, err := destTi.ParseValue(str)
+	val, err := destTi.ParseValue(ctx, vrw, str)
 	if err != nil {
 		return nil, err
 	}

@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,11 +15,11 @@
 package untyped
 
 import (
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema/typeinfo"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/typed"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/typed"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 // NewUntypedSchema takes an array of field names and returns a schema where the fields use the provided names, are of
@@ -42,7 +42,7 @@ func NewUntypedSchemaWithFirstTag(firstTag uint64, colNames ...string) (map[stri
 	}
 
 	colColl, _ := schema.NewColCollection(cols...)
-	sch := schema.SchemaFromCols(colColl)
+	sch := schema.MustSchemaFromCols(colColl)
 
 	return nameToTag, sch
 }
@@ -98,7 +98,7 @@ func UntypeSchema(sch schema.Schema) (schema.Schema, error) {
 		return nil, err
 	}
 
-	return schema.SchemaFromCols(colColl), nil
+	return schema.SchemaFromCols(colColl)
 }
 
 // UnkeySchema takes a schema and returns a schema with the same columns and types, but stripped of constraints and

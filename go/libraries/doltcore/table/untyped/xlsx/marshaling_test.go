@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,20 +15,22 @@
 package xlsx
 
 import (
+	"context"
 	"fmt"
+	"io/ioutil"
+	"os"
 	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema/typeinfo"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/untyped"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/untyped"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 func TestDecodeXLSXRows(t *testing.T) {
-
 	colNames := []string{"id", "first", "last", "age"}
 	_, sch := untyped.NewUntypedSchema(colNames...)
 
@@ -36,7 +38,8 @@ func TestDecodeXLSXRows(t *testing.T) {
 	first := [][]string{{"id", "first", "last", "age"}, {"1", "osheiza", "otori", "24"}}
 	second = append(second, first)
 
-	decoded, err := decodeXLSXRows(types.Format_7_18, second, sch)
+	vrw := types.NewMemoryValueStore()
+	decoded, err := decodeXLSXRows(context.Background(), vrw, second, sch)
 	if err != nil {
 		fmt.Println(err)
 
@@ -44,15 +47,15 @@ func TestDecodeXLSXRows(t *testing.T) {
 
 	taggedVals := make(row.TaggedValues, sch.GetAllCols().Size())
 	str := "1"
-	taggedVals[uint64(0)], _ = typeinfo.StringDefaultType.ParseValue(&str)
+	taggedVals[uint64(0)], _ = typeinfo.StringDefaultType.ParseValue(context.Background(), nil, &str)
 	str = "osheiza"
-	taggedVals[uint64(1)], _ = typeinfo.StringDefaultType.ParseValue(&str)
+	taggedVals[uint64(1)], _ = typeinfo.StringDefaultType.ParseValue(context.Background(), nil, &str)
 	str = "otori"
-	taggedVals[uint64(2)], _ = typeinfo.StringDefaultType.ParseValue(&str)
+	taggedVals[uint64(2)], _ = typeinfo.StringDefaultType.ParseValue(context.Background(), nil, &str)
 	str = "24"
-	taggedVals[uint64(3)], _ = typeinfo.StringDefaultType.ParseValue(&str)
+	taggedVals[uint64(3)], _ = typeinfo.StringDefaultType.ParseValue(context.Background(), nil, &str)
 
-	newRow, err := row.New(types.Format_7_18, sch, taggedVals)
+	newRow, err := row.New(vrw.Format(), sch, taggedVals)
 
 	assert.NoError(t, err)
 
@@ -63,10 +66,34 @@ func TestDecodeXLSXRows(t *testing.T) {
 
 func TestGetRows(t *testing.T) {
 	path := "test_files/employees.xlsx"
-	stateCols, _ := getXlsxRows(path, "states")
-	employeeCols, _ := getXlsxRows(path, "employees")
+	stateCols, _ := getXlsxRowsFromPath(path, "states")
+	employeeCols, _ := getXlsxRowsFromPath(path, "employees")
 
 	if stateCols != nil || employeeCols == nil {
 		t.Fatal("error")
 	}
+}
+
+func TestGetRowsFromBinary(t *testing.T) {
+	xlsxBinary := getBytesFromXlsx()
+	stateCols, _ := getXlsxRowsFromBinary(xlsxBinary, "states")
+	employeeCols, _ := getXlsxRowsFromBinary(xlsxBinary, "employees")
+
+	if stateCols != nil || employeeCols == nil {
+		t.Fatal("error")
+	}
+}
+
+func getBytesFromXlsx() []byte {
+	f, err := os.Open("test_files/employees.xlsx")
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+
+	bs, err := ioutil.ReadAll(f)
+	if err != nil {
+		panic(err)
+	}
+	return bs
 }

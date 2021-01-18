@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,13 +20,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/ref"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema/encoding"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/ref"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema/encoding"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 // TableUpdate defines a list of modifications that should be made to a table
@@ -143,11 +143,11 @@ func UpdateTables(t *testing.T, ctx context.Context, root *doltdb.RootValue, tbl
 
 		schVal, err := encoding.MarshalSchemaAsNomsValue(ctx, root.VRW(), sch)
 
-		var indexData *types.Map
+		indexData, err := types.NewMap(ctx, root.VRW())
+		require.NoError(t, err)
 		if tbl != nil {
-			existingIndexData, err := tbl.GetIndexData(ctx)
+			indexData, err = tbl.GetIndexData(ctx)
 			require.NoError(t, err)
-			indexData = &existingIndexData
 		}
 		tbl, err = doltdb.NewTable(ctx, root.VRW(), schVal, rowData, indexData)
 		require.NoError(t, err)

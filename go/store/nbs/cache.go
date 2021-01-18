@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,9 +27,9 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/liquidata-inc/dolt/go/store/chunks"
-	"github.com/liquidata-inc/dolt/go/store/hash"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/chunks"
+	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 const (
@@ -89,8 +89,8 @@ func (nbc *NomsBlockCache) Get(ctx context.Context, hash hash.Hash) (chunks.Chun
 // GetMany gets the Chunks with |hashes| from the store. On return,
 // |foundChunks| will have been fully sent all chunks which have been
 // found. Any non-present chunks will silently be ignored.
-func (nbc *NomsBlockCache) GetMany(ctx context.Context, hashes hash.HashSet, foundChunks chan *chunks.Chunk) error {
-	return nbc.chunks.GetMany(ctx, hashes, foundChunks)
+func (nbc *NomsBlockCache) GetMany(ctx context.Context, hashes hash.HashSet, found func(*chunks.Chunk)) error {
+	return nbc.chunks.GetMany(ctx, hashes, found)
 }
 
 // Count returns the number of items in the cache.

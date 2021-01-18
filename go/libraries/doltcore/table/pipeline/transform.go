@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
 package pipeline
 
 import (
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
 )
 
 // NamedTransform is a struct containing a TransformFunc and the name of the transform being applied.  If an error occurs
@@ -79,7 +79,12 @@ func newRowTransformer(name string, transRowFunc TransformRowFunc) TransformFunc
 						}
 
 						outRow := RowWithProps{outRowData[i].RowData, outProps}
-						outChan <- outRow
+
+						select {
+						case outChan <- outRow:
+						case <-stopChan:
+							return
+						}
 					}
 
 					if badRowDetails != "" {

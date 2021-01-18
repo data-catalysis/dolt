@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,18 +22,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/dtestutils"
-	tc "github.com/liquidata-inc/dolt/go/libraries/doltcore/dtestutils/testcommands"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
+	tc "github.com/dolthub/dolt/go/libraries/doltcore/dtestutils/testcommands"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
 )
 
 const (
-	pkTag = iota
-	c0Tag
-	c1Tag
-	c11Tag
-	c12Tag
+	pkTag  = 16191
+	c0Tag  = 8734
+	c1Tag  = 15903
+	c11Tag = 15001
 )
 
 type SuperSchemaTest struct {
@@ -53,7 +52,7 @@ type SuperSchemaTest struct {
 	ExpectedErrStr string
 }
 
-var testableDef = fmt.Sprintf("create table testable (pk int not null primary key comment 'tag:%d');", pkTag)
+var testableDef = fmt.Sprintf("create table testable (pk int not null primary key);")
 
 var SuperSchemaTests = []SuperSchemaTest{
 	{
@@ -64,7 +63,7 @@ var SuperSchemaTests = []SuperSchemaTest{
 			tc.CommitAll{Message: "created table testable"},
 		},
 		ExpectedBranch: "master",
-		ExpectedSchema: schema.SchemaFromCols(columnCollection(
+		ExpectedSchema: schema.MustSchemaFromCols(columnCollection(
 			newColTypeInfo("pk", pkTag, typeinfo.Int32Type, true, schema.NotNullConstraint{}),
 		)),
 		ExpectedSuperSchema: superSchemaFromCols(columnCollection(
@@ -78,7 +77,7 @@ var SuperSchemaTests = []SuperSchemaTest{
 			tc.Query{Query: testableDef},
 		},
 		ExpectedBranch: "master",
-		ExpectedSchema: schema.SchemaFromCols(columnCollection(
+		ExpectedSchema: schema.MustSchemaFromCols(columnCollection(
 			newColTypeInfo("pk", pkTag, typeinfo.Int32Type, true, schema.NotNullConstraint{}),
 		)),
 		ExpectedSuperSchema: superSchemaFromCols(columnCollection(
@@ -91,10 +90,10 @@ var SuperSchemaTests = []SuperSchemaTest{
 		Commands: []tc.Command{
 			tc.Query{Query: testableDef},
 			tc.CommitAll{Message: "created table testable"},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int comment 'tag:%d';", c0Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int;")},
 		},
 		ExpectedBranch: "master",
-		ExpectedSchema: schema.SchemaFromCols(columnCollection(
+		ExpectedSchema: schema.MustSchemaFromCols(columnCollection(
 			newColTypeInfo("pk", pkTag, typeinfo.Int32Type, true, schema.NotNullConstraint{}),
 			newColTypeInfo("c0", c0Tag, typeinfo.Int32Type, false),
 		)),
@@ -108,13 +107,13 @@ var SuperSchemaTests = []SuperSchemaTest{
 		TableName: "testable",
 		Commands: []tc.Command{
 			tc.Query{Query: testableDef},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int comment 'tag:%d';", c0Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int")},
 			tc.CommitAll{Message: "created table testable"},
 			tc.Query{Query: "alter table testable drop column c0"},
 			tc.CommitAll{Message: "dropped column c0"},
 		},
 		ExpectedBranch: "master",
-		ExpectedSchema: schema.SchemaFromCols(columnCollection(
+		ExpectedSchema: schema.MustSchemaFromCols(columnCollection(
 			newColTypeInfo("pk", pkTag, typeinfo.Int32Type, true, schema.NotNullConstraint{}),
 		)),
 		ExpectedSuperSchema: superSchemaFromCols(columnCollection(
@@ -127,12 +126,12 @@ var SuperSchemaTests = []SuperSchemaTest{
 		TableName: "testable",
 		Commands: []tc.Command{
 			tc.Query{Query: testableDef},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int comment 'tag:%d';", c0Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int;")},
 			tc.CommitAll{Message: "created table testable"},
 			tc.Query{Query: "alter table testable drop column c0"},
 		},
 		ExpectedBranch: "master",
-		ExpectedSchema: schema.SchemaFromCols(columnCollection(
+		ExpectedSchema: schema.MustSchemaFromCols(columnCollection(
 			newColTypeInfo("pk", pkTag, typeinfo.Int32Type, true, schema.NotNullConstraint{}),
 		)),
 		ExpectedSuperSchema: superSchemaFromCols(columnCollection(
@@ -145,11 +144,11 @@ var SuperSchemaTests = []SuperSchemaTest{
 		TableName: "testable",
 		Commands: []tc.Command{
 			tc.Query{Query: testableDef},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int comment 'tag:%d';", c0Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int;")},
 			tc.Query{Query: "alter table testable drop column c0"},
 		},
 		ExpectedBranch: "master",
-		ExpectedSchema: schema.SchemaFromCols(columnCollection(
+		ExpectedSchema: schema.MustSchemaFromCols(columnCollection(
 			newColTypeInfo("pk", pkTag, typeinfo.Int32Type, true, schema.NotNullConstraint{}),
 		)),
 		ExpectedSuperSchema: superSchemaFromCols(columnCollection(
@@ -162,14 +161,14 @@ var SuperSchemaTests = []SuperSchemaTest{
 		Commands: []tc.Command{
 			tc.Query{Query: testableDef},
 			tc.CommitAll{Message: "created table testable"},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int comment 'tag:%d';", c0Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int;")},
 			tc.StageAll{},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c1 int comment 'tag:%d';", c1Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c1 int;")},
 			tc.CommitStaged{Message: "adding staged column c0"},
 			tc.ResetHard{},
 		},
 		ExpectedBranch: "master",
-		ExpectedSchema: schema.SchemaFromCols(columnCollection(
+		ExpectedSchema: schema.MustSchemaFromCols(columnCollection(
 			newColTypeInfo("pk", pkTag, typeinfo.Int32Type, true, schema.NotNullConstraint{}),
 			newColTypeInfo("c0", c0Tag, typeinfo.Int32Type, false),
 		)),
@@ -183,17 +182,17 @@ var SuperSchemaTests = []SuperSchemaTest{
 		TableName: "testable",
 		Commands: []tc.Command{
 			tc.Query{Query: testableDef},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int comment 'tag:%d';", c0Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int;")},
 			tc.CommitAll{Message: "created table testable"},
 			tc.Branch{BranchName: "other"},
 			tc.Checkout{BranchName: "other"},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c11 int comment 'tag:%d';", c11Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c11 int;")},
 			tc.CommitAll{Message: "added column c11 on branch other"},
 			tc.Checkout{BranchName: "master"},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c1 int comment 'tag:%d';", c1Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c1 int;")},
 		},
 		ExpectedBranch: "master",
-		ExpectedSchema: schema.SchemaFromCols(columnCollection(
+		ExpectedSchema: schema.MustSchemaFromCols(columnCollection(
 			newColTypeInfo("pk", pkTag, typeinfo.Int32Type, true, schema.NotNullConstraint{}),
 			newColTypeInfo("c0", c0Tag, typeinfo.Int32Type, false),
 			newColTypeInfo("c1", c1Tag, typeinfo.Int32Type, false),
@@ -209,19 +208,19 @@ var SuperSchemaTests = []SuperSchemaTest{
 		TableName: "testable",
 		Commands: []tc.Command{
 			tc.Query{Query: testableDef},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int comment 'tag:%d';", c0Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int;")},
 			tc.CommitAll{Message: "created table testable"},
 			tc.Branch{BranchName: "other"},
 			tc.Checkout{BranchName: "other"},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c11 int comment 'tag:%d';", c11Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c11 int;")},
 			tc.CommitAll{Message: "added column c11 on branch other"},
 			tc.Checkout{BranchName: "master"},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c1 int comment 'tag:%d';", c1Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c1 int;")},
 			tc.CommitAll{Message: "added column c1 on branch master"},
 			tc.Checkout{BranchName: "other"},
 		},
 		ExpectedBranch: "other",
-		ExpectedSchema: schema.SchemaFromCols(columnCollection(
+		ExpectedSchema: schema.MustSchemaFromCols(columnCollection(
 			newColTypeInfo("pk", pkTag, typeinfo.Int32Type, true, schema.NotNullConstraint{}),
 			newColTypeInfo("c0", c0Tag, typeinfo.Int32Type, false),
 			newColTypeInfo("c11", c11Tag, typeinfo.Int32Type, false),
@@ -232,25 +231,25 @@ var SuperSchemaTests = []SuperSchemaTest{
 			newColTypeInfo("c11", c11Tag, typeinfo.Int32Type, false),
 		)),
 	},
-	// https://github.com/liquidata-inc/dolt/issues/773
+	// https://github.com/dolthub/dolt/issues/773
 	/*{
 		Name:      "super schema merge",
 		TableName: "testable",
 		Commands: []tc.Command{
 			tc.Query{Query: testableDef},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int comment 'tag:%d';", c0Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int;")},
 			tc.CommitAll{Message: "created table testable"},
 			tc.Branch{BranchName: "other"},
 			tc.Checkout{BranchName: "other"},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c11 int comment 'tag:%d';", c11Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c11 int;")},
 			tc.CommitAll{Message: "added column c11 on branch other"},
 			tc.Checkout{BranchName: "master"},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c1 int comment 'tag:%d';", c1Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c1 int;")},
 			tc.CommitAll{Message: "added column c1 on branch master"},
 			tc.Merge{BranchName: "other"},
 		},
 		ExpectedBranch: "master",
-		ExpectedSchema: schema.SchemaFromCols(columnCollection(
+		ExpectedSchema: schema.MustSchemaFromCols(columnCollection(
 			newColTypeInfo("pk", pkTag, typeinfo.Int32Type, true, schema.NotNullConstraint{}),
 			newColTypeInfo("c0", c0Tag, typeinfo.Int32Type, false),
 			newColTypeInfo("c1", c1Tag, typeinfo.Int32Type, false),
@@ -268,23 +267,23 @@ var SuperSchemaTests = []SuperSchemaTest{
 		TableName: "testable",
 		Commands: []tc.Command{
 			tc.Query{Query: testableDef},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int comment 'tag:%d';", c0Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int;")},
 			tc.CommitAll{Message: "created table testable"},
 			tc.Branch{BranchName: "other"},
 			tc.Checkout{BranchName: "other"},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c11 int comment 'tag:%d';", c11Tag)},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c12 int comment 'tag:%d';", c12Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c11 int;")},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c12 int;")},
 			tc.CommitAll{Message: "added columns c11 and c12 on branch other"},
 			tc.Query{Query: "alter table testable drop column c12;"},
 			tc.CommitAll{Message: "dropped column c12 on branch other"},
 			tc.Checkout{BranchName: "master"},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c1 int comment 'tag:%d';", c1Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c1 int;")},
 			tc.CommitAll{Message: "added column c1 on branch master"},
 			tc.Merge{BranchName: "other"},
 			tc.CommitAll{Message: "Merged other into master"},
 		},
 		ExpectedBranch: "master",
-		ExpectedSchema: schema.SchemaFromCols(columnCollection(
+		ExpectedSchema: schema.MustSchemaFromCols(columnCollection(
 			newColTypeInfo("pk", pkTag, typeinfo.Int32Type, true, schema.NotNullConstraint{}),
 			newColTypeInfo("c0", c0Tag, typeinfo.Int32Type, false),
 			newColTypeInfo("c1", c1Tag, typeinfo.Int32Type, false),
@@ -303,16 +302,16 @@ var SuperSchemaTests = []SuperSchemaTest{
 		TableName: "testable",
 		Commands: []tc.Command{
 			tc.Query{Query: testableDef},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int comment 'tag:%d';", c0Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c0 int;")},
 			tc.Query{Query: "create table foo (pk int not null primary key);"},
 			tc.CommitAll{Message: "created tables testable and foo"},
-			tc.Query{Query: fmt.Sprintf("alter table testable add column c1 int comment 'tag:%d';", c1Tag)},
+			tc.Query{Query: fmt.Sprintf("alter table testable add column c1 int;")},
 			tc.Query{Query: "create table qux (pk int not null primary key);"},
 			tc.Query{Query: "drop table foo;"},
 			tc.CommitAll{Message: "added column c1 on branch master, created table qux, dropped table foo"},
 		},
 		ExpectedBranch: "master",
-		ExpectedSchema: schema.SchemaFromCols(columnCollection(
+		ExpectedSchema: schema.MustSchemaFromCols(columnCollection(
 			newColTypeInfo("pk", pkTag, typeinfo.Int32Type, true, schema.NotNullConstraint{}),
 			newColTypeInfo("c0", c0Tag, typeinfo.Int32Type, false),
 			newColTypeInfo("c1", c1Tag, typeinfo.Int32Type, false),
@@ -340,7 +339,7 @@ var SuperSchemaTests = []SuperSchemaTest{
 			tc.Checkout{BranchName: "first"},
 		},
 		ExpectedBranch: "first",
-		ExpectedSchema: schema.SchemaFromCols(columnCollection(
+		ExpectedSchema: schema.MustSchemaFromCols(columnCollection(
 			newColTypeInfo("pk", pkTag, typeinfo.Int32Type, true, schema.NotNullConstraint{}),
 		)),
 		ExpectedSuperSchema: superSchemaFromCols(columnCollection(
@@ -392,7 +391,7 @@ func testSuperSchema(t *testing.T, test SuperSchemaTest) {
 }
 
 func superSchemaFromCols(cols *schema.ColCollection) *schema.SuperSchema {
-	sch := schema.SchemaFromCols(cols)
+	sch := schema.MustSchemaFromCols(cols)
 	ss, _ := schema.NewSuperSchema(sch)
 	return ss
 }

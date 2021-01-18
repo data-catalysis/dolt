@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,9 +28,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/liquidata-inc/dolt/go/store/chunks"
-	"github.com/liquidata-inc/dolt/go/store/d"
-	"github.com/liquidata-inc/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/chunks"
+	"github.com/dolthub/dolt/go/store/d"
+	"github.com/dolthub/dolt/go/store/hash"
 )
 
 type storeOpenFn func() (chunks.ChunkStore, error)
@@ -137,7 +137,7 @@ func benchmarkReadMany(openStore storeOpenFn, hashes hashSlice, src *dataSource,
 			wg.Add(1)
 			go func(hashes hash.HashSlice) {
 				chunkChan := make(chan *chunks.Chunk, len(hashes))
-				err := store.GetMany(context.Background(), hashes.HashSet(), chunkChan)
+				err := store.GetMany(context.Background(), hashes.HashSet(), func(c *chunks.Chunk) { chunkChan <- c })
 
 				d.PanicIfError(err)
 
@@ -153,7 +153,7 @@ func benchmarkReadMany(openStore storeOpenFn, hashes hashSlice, src *dataSource,
 
 	if len(batch) > 0 {
 		chunkChan := make(chan *chunks.Chunk, len(batch))
-		err := store.GetMany(context.Background(), batch.HashSet(), chunkChan)
+		err := store.GetMany(context.Background(), batch.HashSet(), func(c *chunks.Chunk) { chunkChan <- c })
 		assert.NoError(t, err)
 
 		close(chunkChan)

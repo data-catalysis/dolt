@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,24 +17,24 @@ package commands
 import (
 	"context"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/cli"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/errhand"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/diff"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/diff/querydiff"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/rowconv"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	dsqle "github.com/liquidata-inc/dolt/go/libraries/doltcore/sqle"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/pipeline"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/untyped"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/untyped/fwt"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/untyped/nullprinter"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/iohelp"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
+	"github.com/dolthub/dolt/go/libraries/doltcore/diff"
+	"github.com/dolthub/dolt/go/libraries/doltcore/diff/querydiff"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/rowconv"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/pipeline"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/untyped"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/untyped/fwt"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/untyped/nullprinter"
+	"github.com/dolthub/dolt/go/libraries/utils/iohelp"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 func diffQuery(ctx context.Context, dEnv *env.DoltEnv, fromRoot, toRoot *doltdb.RootValue, query string) errhand.VerboseError {
@@ -68,7 +68,7 @@ func diffQuery(ctx context.Context, dEnv *env.DoltEnv, fromRoot, toRoot *doltdb.
 }
 
 func doltSchWithPKFromSqlSchema(sch sql.Schema) schema.Schema {
-	dSch, _ := dsqle.SqlSchemaToDoltResultSchema(sch)
+	dSch, _ := sqlutil.ToDoltResultSchema(sch)
 	// make the first col the PK
 	pk := false
 	newCC, _ := schema.MapColCollection(dSch.GetAllCols(), func(col schema.Column) (column schema.Column, err error) {
@@ -78,10 +78,10 @@ func doltSchWithPKFromSqlSchema(sch sql.Schema) schema.Schema {
 		}
 		return col, nil
 	})
-	return schema.SchemaFromCols(newCC)
+	return schema.MustSchemaFromCols(newCC)
 }
 
-func nextQueryDiff(qd *querydiff.QueryDiffer, joiner *rowconv.Joiner) (row.Row, pipeline.ImmutableProperties, error) {
+func nextQueryDiff(vrw types.ValueReadWriter, qd *querydiff.QueryDiffer, joiner *rowconv.Joiner) (row.Row, pipeline.ImmutableProperties, error) {
 	fromRow, toRow, err := qd.NextDiff()
 	if err != nil {
 		return nil, pipeline.ImmutableProperties{}, err
@@ -90,7 +90,7 @@ func nextQueryDiff(qd *querydiff.QueryDiffer, joiner *rowconv.Joiner) (row.Row, 
 	rows := make(map[string]row.Row)
 	if fromRow != nil {
 		sch := joiner.SchemaForName(diff.From)
-		oldRow, err := dsqle.SqlRowToDoltRow(types.Format_Default, fromRow, sch)
+		oldRow, err := sqlutil.SqlRowToDoltRow(context.Background(), vrw, fromRow, sch)
 		if err != nil {
 			return nil, pipeline.ImmutableProperties{}, err
 		}
@@ -99,7 +99,7 @@ func nextQueryDiff(qd *querydiff.QueryDiffer, joiner *rowconv.Joiner) (row.Row, 
 
 	if toRow != nil {
 		sch := joiner.SchemaForName(diff.To)
-		newRow, err := dsqle.SqlRowToDoltRow(types.Format_Default, toRow, sch)
+		newRow, err := sqlutil.SqlRowToDoltRow(context.Background(), vrw, toRow, sch)
 		if err != nil {
 			return nil, pipeline.ImmutableProperties{}, err
 		}
@@ -115,8 +115,8 @@ func nextQueryDiff(qd *querydiff.QueryDiffer, joiner *rowconv.Joiner) (row.Row, 
 }
 
 func buildQueryDiffPipeline(qd *querydiff.QueryDiffer, doltSch schema.Schema, joiner *rowconv.Joiner) (*pipeline.Pipeline, error) {
-
-	unionSch, ds, verr := createSplitter(doltSch, doltSch, joiner, &diffArgs{diffOutput: TabularDiffOutput})
+	vrw := types.NewMemoryValueStore() // We don't want to persist anything, so we use an internal store
+	unionSch, ds, verr := createSplitter(context.Background(), vrw, doltSch, doltSch, joiner, &diffArgs{diffOutput: TabularDiffOutput})
 	if verr != nil {
 		return nil, verr
 	}
@@ -143,7 +143,7 @@ func buildQueryDiffPipeline(qd *querydiff.QueryDiffer, doltSch schema.Schema, jo
 	sinkProcFunc := pipeline.ProcFuncForSinkFunc(sink.ProcRowWithProps)
 
 	srcProcFunc := pipeline.ProcFuncForSourceFunc(func() (row.Row, pipeline.ImmutableProperties, error) {
-		return nextQueryDiff(qd, joiner)
+		return nextQueryDiff(vrw, qd, joiner)
 	})
 
 	p := pipeline.NewAsyncPipeline(srcProcFunc, sinkProcFunc, transforms, badRowCB)

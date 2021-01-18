@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,15 +22,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/dtestutils"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 var fk_dEnv *env.DoltEnv
@@ -374,7 +375,7 @@ func assertTableEditorRows(t *testing.T, fk_dEnv *env.DoltEnv, root *doltdb.Root
 		_ = rowData.IterAll(context.Background(), func(key, value types.Value) error {
 			r, err := row.FromNoms(sch, key.(types.Tuple), value.(types.Tuple))
 			assert.NoError(t, err)
-			sqlRow, err := doltRowToSqlRow(r, sch)
+			sqlRow, err := sqlutil.DoltRowToSqlRow(r, sch)
 			assert.NoError(t, err)
 			sqlRows = append(sqlRows, sqlRow)
 			return nil
@@ -437,7 +438,7 @@ func assertTableEditorRows(t *testing.T, fk_dEnv *env.DoltEnv, root *doltdb.Root
 			_ = indexRowData.IterAll(context.Background(), func(key, value types.Value) error {
 				r, err := row.FromNoms(indexSch, key.(types.Tuple), value.(types.Tuple))
 				assert.NoError(t, err)
-				sqlRow, err := doltRowToSqlRow(r, indexSch)
+				sqlRow, err := sqlutil.DoltRowToSqlRow(r, indexSch)
 				assert.NoError(t, err)
 				sqlRows = append(sqlRows, sqlRow)
 				return nil

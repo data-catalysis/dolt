@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,10 +21,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/dtestutils"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/editor"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 func TestModifyColumn(t *testing.T) {
@@ -32,7 +33,6 @@ func TestModifyColumn(t *testing.T) {
 		name           string
 		existingColumn schema.Column
 		newColumn      schema.Column
-		defaultVal     types.Value
 		order          *ColumnOrder
 		expectedSchema schema.Schema
 		expectedRows   []row.Row
@@ -105,13 +105,6 @@ func TestModifyColumn(t *testing.T) {
 			expectedErr:    "A column with the name name already exists",
 		},
 		{
-			name:           "wrong type for default value",
-			existingColumn: schema.NewColumn("id", dtestutils.IdTag, types.UUIDKind, true, schema.NotNullConstraint{}),
-			newColumn:      schema.NewColumn("newId", dtestutils.IdTag, types.UUIDKind, true, schema.NotNullConstraint{}),
-			defaultVal:     types.String("not a string"),
-			expectedErr:    "Type of default value (String) doesn't match type of column (UUID)",
-		},
-		{
 			name:           "type change",
 			existingColumn: schema.NewColumn("id", dtestutils.IdTag, types.UUIDKind, true, schema.NotNullConstraint{}),
 			newColumn:      schema.NewColumn("newId", dtestutils.IdTag, types.StringKind, true, schema.NotNullConstraint{}),
@@ -121,7 +114,7 @@ func TestModifyColumn(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dEnv := createEnvWithSeedData(t)
+			dEnv := dtestutils.CreateEnvWithSeedData(t)
 			ctx := context.Background()
 
 			root, err := dEnv.WorkingRoot(ctx)
@@ -129,7 +122,7 @@ func TestModifyColumn(t *testing.T) {
 			tbl, _, err := root.GetTable(ctx, tableName)
 			assert.NoError(t, err)
 
-			updatedTable, err := ModifyColumn(ctx, tbl, tt.existingColumn, tt.newColumn, tt.defaultVal, tt.order)
+			updatedTable, err := ModifyColumn(ctx, tbl, tt.existingColumn, tt.newColumn, tt.order)
 			if len(tt.expectedErr) > 0 {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.expectedErr)
@@ -164,9 +157,9 @@ func TestModifyColumn(t *testing.T) {
 			assert.Equal(t, tt.expectedRows, foundRows)
 
 			updatedIndexRows, err := updatedTable.GetIndexRowData(context.Background(), index.Name())
-			assert.NoError(t, err)
-			expectedIndexRows, err := updatedTable.RebuildIndexRowData(context.Background(), index.Name())
-			assert.NoError(t, err)
+			require.NoError(t, err)
+			expectedIndexRows, err := editor.RebuildIndex(context.Background(), updatedTable, index.Name())
+			require.NoError(t, err)
 			if uint64(len(foundRows)) != updatedIndexRows.Len() || !updatedIndexRows.Equals(expectedIndexRows) {
 				t.Error("index contents are incorrect")
 			}

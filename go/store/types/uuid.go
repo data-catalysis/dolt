@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,16 +15,35 @@
 package types
 
 import (
+	"bytes"
 	"context"
 
 	"github.com/google/uuid"
 
-	"github.com/liquidata-inc/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/hash"
 )
 
 const (
 	uuidNumBytes = 16
 )
+
+// UUIDHashedFromValues generates a UUID from the first 16 byes of the hash.Hash
+// generated from serialized |vals|.
+func UUIDHashedFromValues(nbf *NomsBinFormat, vals ...Value) (UUID, error) {
+	w := binaryNomsWriter{make([]byte, 4), 0}
+	for _, v := range vals {
+		if v == nil || v.Kind() == NullKind {
+			continue
+		}
+		if err := v.writeTo(&w, nbf); err != nil {
+			return [16]byte{}, err
+		}
+	}
+
+	h := hash.Of(w.data())
+	id, err := uuid.FromBytes(h[:uuidNumBytes])
+	return UUID(id), err
+}
 
 type UUID uuid.UUID
 
@@ -38,16 +57,7 @@ func (v UUID) Equals(other Value) bool {
 
 func (v UUID) Less(nbf *NomsBinFormat, other LesserValuable) (bool, error) {
 	if v2, ok := other.(UUID); ok {
-		for i := 0; i < uuidNumBytes; i++ {
-			b1 := v[i]
-			b2 := v2[i]
-
-			if b1 != b2 {
-				return b1 < b2, nil
-			}
-		}
-
-		return false, nil
+		return bytes.Compare(v[:], v2[:]) < 0, nil
 	}
 	return UUIDKind < other.Kind(), nil
 }
@@ -93,10 +103,9 @@ func (v UUID) writeTo(w nomsWriter, nbf *NomsBinFormat) error {
 	return nil
 }
 
-func (v UUID) readFrom(nbf *NomsBinFormat, b *binaryNomsReader) (Value, error) {
-	id := UUID{}
-	copy(id[:uuidNumBytes], b.readBytes(uuidNumBytes))
-	return id, nil
+func (v UUID) readFrom(_ *NomsBinFormat, b *binaryNomsReader) (Value, error) {
+	id := b.ReadUUID()
+	return UUID(id), nil
 }
 
 func (v UUID) skip(nbf *NomsBinFormat, b *binaryNomsReader) {

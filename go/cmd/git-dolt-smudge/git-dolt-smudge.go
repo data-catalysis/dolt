@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,9 +21,9 @@ import (
 	"log"
 	"os"
 
-	"github.com/liquidata-inc/dolt/go/cmd/git-dolt/config"
-	"github.com/liquidata-inc/dolt/go/cmd/git-dolt/doltops"
-	"github.com/liquidata-inc/dolt/go/cmd/git-dolt/utils"
+	"github.com/dolthub/dolt/go/cmd/git-dolt/config"
+	"github.com/dolthub/dolt/go/cmd/git-dolt/doltops"
+	"github.com/dolthub/dolt/go/cmd/git-dolt/utils"
 )
 
 func main() {

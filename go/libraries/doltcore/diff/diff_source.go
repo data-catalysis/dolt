@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,11 +19,11 @@ import (
 	"io"
 	"time"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/rowconv"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/pipeline"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/rowconv"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/pipeline"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 const (
@@ -32,13 +32,13 @@ const (
 )
 
 type RowDiffSource struct {
-	ad         *AsyncDiffer
+	ad         RowDiffer
 	joiner     *rowconv.Joiner
 	oldRowConv *rowconv.RowConverter
 	newRowConv *rowconv.RowConverter
 }
 
-func NewRowDiffSource(ad *AsyncDiffer, joiner *rowconv.Joiner) *RowDiffSource {
+func NewRowDiffSource(ad RowDiffer, joiner *rowconv.Joiner) *RowDiffSource {
 	return &RowDiffSource{
 		ad,
 		joiner,
@@ -60,21 +60,15 @@ func (rdRd *RowDiffSource) GetSchema() schema.Schema {
 // NextDiff reads a row from a table.  If there is a bad row the returned error will be non nil, and callin IsBadRow(err)
 // will be return true. This is a potentially non-fatal error and callers can decide if they want to continue on a bad row, or fail.
 func (rdRd *RowDiffSource) NextDiff() (row.Row, pipeline.ImmutableProperties, error) {
-	if rdRd.ad.isDone {
-		return nil, pipeline.NoProps, io.EOF
-	}
-
-	diffs, err := rdRd.ad.GetDiffs(1, time.Second)
-
+	diffs, hasMore, err := rdRd.ad.GetDiffs(1, time.Second)
 	if err != nil {
 		return nil, pipeline.ImmutableProperties{}, err
 	}
 
 	if len(diffs) == 0 {
-		if rdRd.ad.isDone {
+		if !hasMore {
 			return nil, pipeline.NoProps, io.EOF
 		}
-
 		return nil, pipeline.NoProps, errors.New("timeout")
 	}
 

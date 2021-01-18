@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,12 +15,14 @@
 package merge
 
 import (
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/rowconv"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/pipeline"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/untyped"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"context"
+
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/rowconv"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/pipeline"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/untyped"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 // MergeVersion defines which version a value of a row corresponds to
@@ -51,7 +53,7 @@ type ConflictSplitter struct {
 }
 
 // NewConflictSplitter creates a new ConflictSplitter
-func NewConflictSplitter(joiner *rowconv.Joiner) (ConflictSplitter, error) {
+func NewConflictSplitter(ctx context.Context, vrw types.ValueReadWriter, joiner *rowconv.Joiner) (ConflictSplitter, error) {
 	baseSch := joiner.SchemaForName(baseStr)
 	ourSch := joiner.SchemaForName(baseStr)
 	theirSch := joiner.SchemaForName(theirsStr)
@@ -63,19 +65,19 @@ func NewConflictSplitter(joiner *rowconv.Joiner) (ConflictSplitter, error) {
 	}
 
 	converters := make(map[string]*rowconv.RowConverter)
-	converters[oursStr], err = tagMappingConverter(ourSch, sch)
+	converters[oursStr], err = tagMappingConverter(ctx, vrw, ourSch, sch)
 
 	if err != nil {
 		return ConflictSplitter{}, err
 	}
 
-	converters[theirsStr], err = tagMappingConverter(theirSch, sch)
+	converters[theirsStr], err = tagMappingConverter(ctx, vrw, theirSch, sch)
 
 	if err != nil {
 		return ConflictSplitter{}, err
 	}
 
-	converters[baseStr], err = tagMappingConverter(baseSch, sch)
+	converters[baseStr], err = tagMappingConverter(ctx, vrw, baseSch, sch)
 
 	if err != nil {
 		return ConflictSplitter{}, err

@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,19 +21,19 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/liquidata-inc/go-mysql-server/enginetest"
-	"github.com/liquidata-inc/go-mysql-server/sql"
-	"github.com/liquidata-inc/go-mysql-server/sql/expression"
-	"github.com/liquidata-inc/go-mysql-server/sql/plan"
+	"github.com/dolthub/go-mysql-server/enginetest"
+	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql/expression"
+	"github.com/dolthub/go-mysql-server/sql/plan"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/cli"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/commands"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/diff/querydiff"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/dtestutils"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	det "github.com/liquidata-inc/dolt/go/libraries/doltcore/sqle/enginetest"
+	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/dolthub/dolt/go/cmd/dolt/commands"
+	"github.com/dolthub/dolt/go/libraries/doltcore/diff/querydiff"
+	"github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	det "github.com/dolthub/dolt/go/libraries/doltcore/sqle/enginetest"
 )
 
 type queryDifferTest struct {
@@ -371,6 +371,16 @@ var engineTestSetup = []testCommand{
 	{commands.SqlCmd{}, []string{"-q", `create view myview as select * from mytable`}},
 	//{commands.SqlCmd{}, []string{"-q", "create view myview1 as select * from myhistorytable"}},
 	{commands.SqlCmd{}, []string{"-q", "create view myview2 as select * from myview where i = 1"}},
+	{commands.SqlCmd{}, []string{"-q", `
+CREATE TABLE people (
+	dob DATE,
+	first_name VARCHAR(64),
+	last_name VARCHAR(64),
+	middle_name VARCHAR(64),
+	height_inches TINYINT,
+	gender TINYINT,
+	primary key (dob,first_name,last_name,middle_name)
+)`}},
 	{commands.AddCmd{}, []string{"."}},
 	{commands.CommitCmd{}, []string{"-m", "setup enginetest test tables"}},
 	{commands.SqlCmd{}, []string{"-q", "insert into mytable values " +
@@ -444,13 +454,21 @@ var engineTestSetup = []testCommand{
 		"(6, NULL, '2');"}},
 	{commands.SqlCmd{}, []string{"-q", `insert into reservedWordsTable values 
 		("1", "1.1", "aaa", "create");`}},
+	{commands.SqlCmd{}, []string{"-q", `
+INSERT INTO people (dob,first_name,last_name,middle_name,height_inches,gender)
+VALUES
+("1970-12-01", "jon", "smith", "", 72, 0),
+("1980-01-11", "jon", "smith", "", 67, 0),
+("1990-02-21", "jane", "doe", "", 68, 1),
+("2000-12-31", "frank", "franklin", "", 70, 2),
+("2010-03-15", "jane", "doe", "", 69, 1)`}},
 }
 
 func setupEngineTests(t *testing.T) *env.DoltEnv {
 	dEnv := dtestutils.CreateTestEnv()
 	for _, c := range engineTestSetup {
 		exitCode := c.cmd.Exec(context.Background(), c.cmd.Name(), c.args, dEnv)
-		assert.Equal(t, 0, exitCode)
+		require.Equal(t, 0, exitCode)
 	}
 	return dEnv
 }
@@ -475,6 +493,11 @@ var engineTestSkipSet = []string{
 func skipEngineTest(test enginetest.QueryTest) bool {
 	h := det.DoltHarness{}
 	if h.SkipQueryTest(test.Query) {
+		return true
+	}
+
+	if test.Bindings != nil {
+		// todo: support bindings in query diff
 		return true
 	}
 
@@ -578,6 +601,7 @@ func TestEngineTestQueryDifferBefore(t *testing.T) {
 
 	// engineTestQueries are read-only, sharing a dEnv speeds up tests
 	dEnv := setupEngineTests(t)
+
 	for _, testSet := range engineQueryTests {
 		for _, test := range testSet {
 			t.Run(test.Query, func(t *testing.T) {

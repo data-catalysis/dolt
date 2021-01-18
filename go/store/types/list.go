@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,11 +23,12 @@ package types
 
 import (
 	"context"
+	"io"
 	"sync/atomic"
 
-	"github.com/liquidata-inc/dolt/go/store/atomicerr"
+	"github.com/dolthub/dolt/go/store/atomicerr"
 
-	"github.com/liquidata-inc/dolt/go/store/d"
+	"github.com/dolthub/dolt/go/store/d"
 )
 
 var EmptyList List
@@ -311,6 +312,79 @@ func iterAll(ctx context.Context, col Collection, f func(v Value, index uint64) 
 	return ae.Get()
 }
 
+type collTupleRangeIter struct {
+	leaves         []Collection
+	currLeaf       int
+	startIdx       uint64
+	endIdx         uint64
+	valsPerIdx     uint64
+	currLeafValues []Tuple
+	leafValPos     int
+	nbf            *NomsBinFormat
+	tupleBuffer    []Tuple
+}
+
+func (itr *collTupleRangeIter) Next() (Tuple, error) {
+	var err error
+	if itr.currLeafValues == nil {
+		if itr.currLeaf >= len(itr.leaves) {
+			// reached the end
+			return Tuple{}, io.EOF
+		}
+
+		currLeaf := itr.leaves[itr.currLeaf]
+		itr.currLeaf++
+
+		seq := currLeaf.asSequence()
+		itr.tupleBuffer, err = seq.kvTuples(itr.startIdx, itr.endIdx, itr.tupleBuffer)
+
+		if err != nil {
+			return Tuple{}, err
+		}
+
+		itr.currLeafValues = itr.tupleBuffer
+		itr.leafValPos = 0
+	}
+
+	v := itr.currLeafValues[itr.leafValPos]
+	itr.leafValPos++
+
+	if itr.leafValPos >= len(itr.currLeafValues) {
+		itr.endIdx = itr.endIdx - uint64(len(itr.currLeafValues))/itr.valsPerIdx - itr.startIdx
+		itr.startIdx = 0
+		itr.currLeafValues = nil
+	}
+
+	return v, nil
+}
+
+func newCollRangeIter(ctx context.Context, col Collection, startIdx, endIdx uint64) (*collTupleRangeIter, error) {
+	l := col.Len()
+	d.PanicIfTrue(startIdx > endIdx || endIdx > l)
+	if startIdx == endIdx {
+		return nil, nil
+	}
+
+	leaves, localStart, err := LoadLeafNodes(ctx, []Collection{col}, startIdx, endIdx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	endIdx = localStart + endIdx - startIdx
+	startIdx = localStart
+	valuesPerIdx := uint64(getValuesPerIdx(col.Kind()))
+
+	return &collTupleRangeIter{
+		leaves:      leaves,
+		startIdx:    startIdx,
+		endIdx:      endIdx,
+		valsPerIdx:  valuesPerIdx,
+		tupleBuffer: make([]Tuple, 32),
+		nbf:         col.asSequence().format(),
+	}, nil
+}
+
 func iterRange(ctx context.Context, col Collection, startIdx, endIdx uint64, cb func(v Value) error) (uint64, error) {
 	l := col.Len()
 	d.PanicIfTrue(startIdx > endIdx || endIdx > l)
@@ -387,15 +461,15 @@ func (l List) Format() *NomsBinFormat {
 
 // Diff streams the diff from last to the current list to the changes channel. Caller can close
 // closeChan to cancel the diff operation.
-func (l List) Diff(ctx context.Context, last List, changes chan<- Splice, closeChan <-chan struct{}) error {
-	return l.DiffWithLimit(ctx, last, changes, closeChan, DEFAULT_MAX_SPLICE_MATRIX_SIZE)
+func (l List) Diff(ctx context.Context, last List, changes chan<- Splice) error {
+	return l.DiffWithLimit(ctx, last, changes, DEFAULT_MAX_SPLICE_MATRIX_SIZE)
 }
 
 // DiffWithLimit streams the diff from last to the current list to the changes channel. Caller can
 // close closeChan to cancel the diff operation.
 // The maxSpliceMatrixSize determines the how big of an edit distance matrix we are willing to
 // compute versus just saying the thing changed.
-func (l List) DiffWithLimit(ctx context.Context, last List, changes chan<- Splice, closeChan <-chan struct{}, maxSpliceMatrixSize uint64) error {
+func (l List) DiffWithLimit(ctx context.Context, last List, changes chan<- Splice, maxSpliceMatrixSize uint64) error {
 	if l.Equals(last) {
 		return nil
 	}
@@ -409,8 +483,7 @@ func (l List) DiffWithLimit(ctx context.Context, last List, changes chan<- Splic
 		return nil
 	}
 
-	_, err := indexedSequenceDiff(ctx, last.sequence, 0, l.sequence, 0, changes, closeChan, maxSpliceMatrixSize)
-	return err
+	return indexedSequenceDiff(ctx, last.sequence, 0, l.sequence, 0, changes, maxSpliceMatrixSize)
 }
 
 func (l List) newChunker(ctx context.Context, cur *sequenceCursor, vrw ValueReadWriter) (*sequenceChunker, error) {

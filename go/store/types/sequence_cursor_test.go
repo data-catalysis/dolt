@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/liquidata-inc/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/hash"
 )
 
 type testSequence struct {
@@ -100,6 +100,10 @@ func (ts testSequence) Equals(other Value) bool {
 }
 
 func (ts testSequence) valuesSlice(from, to uint64) ([]Value, error) {
+	panic("not reached")
+}
+
+func (ts testSequence) kvTuples(from, to uint64, dest []Tuple) ([]Tuple, error) {
 	panic("not reached")
 }
 

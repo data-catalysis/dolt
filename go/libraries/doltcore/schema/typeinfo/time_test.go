@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -22,7 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 func TestTimeConvertNomsValueToValue(t *testing.T) {
@@ -121,7 +122,8 @@ func TestTimeConvertValueToNomsValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v`, test.input), func(t *testing.T) {
-			output, err := TimeType.ConvertValueToNomsValue(test.input)
+			vrw := types.NewMemoryValueStore()
+			output, err := TimeType.ConvertValueToNomsValue(context.Background(), vrw, test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)
@@ -223,7 +225,8 @@ func TestTimeParseValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v`, test.input), func(t *testing.T) {
-			output, err := TimeType.ParseValue(&test.input)
+			vrw := types.NewMemoryValueStore()
+			output, err := TimeType.ParseValue(context.Background(), vrw, &test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)

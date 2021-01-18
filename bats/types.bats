@@ -42,7 +42,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` BIGINT" ]] || false
+    [[ "$output" =~ "\`v\` bigint" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 4611686018427387903);"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -67,7 +67,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` BIGINT UNSIGNED" ]] || false
+    [[ "$output" =~ "\`v\` bigint unsigned" ]] || false
     cat <<DELIM > uint64-max.csv
 pk,v
 0, 18446744073709551615
@@ -90,7 +90,6 @@ DELIM
 }
 
 @test "types: BINARY(10)" {
-    skip "This is not yet persisted in dolt"
     dolt sql <<SQL
 CREATE TABLE test (
   pk BIGINT NOT NULL,
@@ -100,7 +99,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` BINARY(10)" ]] || false
+    [[ "$output" =~ "\`v\` binary(10)" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 'abcdefg');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -123,7 +122,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` BIT(10)" ]] || false
+    [[ "$output" =~ "\`v\` bit(10)" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 511);"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -139,7 +138,6 @@ SQL
 }
 
 @test "types: BLOB" {
-    skip "This is not yet persisted in dolt"
     dolt sql <<SQL
 CREATE TABLE test (
   pk BIGINT NOT NULL,
@@ -149,7 +147,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` BLOB" ]] || false
+    [[ "$output" =~ "\`v\` blob" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 'abcdefg');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -170,7 +168,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` TINYINT" ]] || false
+    [[ "$output" =~ "\`v\` tinyint" ]] || false
 }
 
 @test "types: BOOLEAN" {
@@ -183,7 +181,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` TINYINT" ]] || false
+    [[ "$output" =~ "\`v\` tinyint" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, true);"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -204,7 +202,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` CHAR(10)" ]] || false
+    [[ "$output" =~ "\`v\` char(10)" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 'abcdefg');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -227,7 +225,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` CHAR(10)" ]] || false
+    [[ "$output" =~ "\`v\` char(10)" ]] || false
 }
 
 @test "types: CHARACTER VARYING(10)" {
@@ -240,7 +238,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` VARCHAR(10)" ]] || false
+    [[ "$output" =~ "\`v\` varchar(10)" ]] || false
 }
 
 @test "types: DATE" {
@@ -253,7 +251,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` DATE" ]] || false
+    [[ "$output" =~ "\`v\` date" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, '2020-02-10 11:12:13.456789');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -282,7 +280,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` DATETIME" ]] || false
+    [[ "$output" =~ "\`v\` datetime" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, '2020-02-10 11:12:13.456789');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -311,7 +309,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` DECIMAL(10,0)" ]] || false
+    [[ "$output" =~ "\`v\` decimal(10,0)" ]] || false
 }
 
 @test "types: DEC(9)" {
@@ -324,7 +322,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` DECIMAL(9,0)" ]] || false
+    [[ "$output" =~ "\`v\` decimal(9,0)" ]] || false
 }
 
 @test "types: DEC(9,5)" {
@@ -337,7 +335,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` DECIMAL(9,5)" ]] || false
+    [[ "$output" =~ "\`v\` decimal(9,5)" ]] || false
 }
 
 @test "types: DECIMAL" {
@@ -350,7 +348,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` DECIMAL(10,0)" ]] || false
+    [[ "$output" =~ "\`v\` decimal(10,0)" ]] || false
 }
 
 @test "types: DECIMAL(9)" {
@@ -363,7 +361,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` DECIMAL(9,0)" ]] || false
+    [[ "$output" =~ "\`v\` decimal(9,0)" ]] || false
 }
 
 @test "types: DECIMAL(9,5)" {
@@ -376,7 +374,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` DECIMAL(9,5)" ]] || false
+    [[ "$output" =~ "\`v\` decimal(9,5)" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 1234.56789);"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -399,7 +397,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` DOUBLE" ]] || false
+    [[ "$output" =~ "\`v\` double" ]] || false
     dolt sql -q "INSERT INTO test VALUES (0, 1.25);"
     run dolt sql -r csv -q "SELECT * FROM test WHERE pk=0"
     [ "$status" -eq "0" ]
@@ -433,7 +431,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` DOUBLE" ]] || false
+    [[ "$output" =~ "\`v\` double" ]] || false
 }
 
 @test "types: ENUM('a','b','c')" {
@@ -446,7 +444,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` ENUM('a','b','c')" ]] || false
+    [[ "$output" =~ "\`v\` enum('a','b','c')" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 'a');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -471,7 +469,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` DECIMAL(10,0)" ]] || false
+    [[ "$output" =~ "\`v\` decimal(10,0)" ]] || false
 }
 
 @test "types: FIXED(9)" {
@@ -484,7 +482,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` DECIMAL(9,0)" ]] || false
+    [[ "$output" =~ "\`v\` decimal(9,0)" ]] || false
 }
 
 @test "types: FIXED(9,5)" {
@@ -497,7 +495,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` DECIMAL(9,5)" ]] || false
+    [[ "$output" =~ "\`v\` decimal(9,5)" ]] || false
 }
 
 @test "types: FLOAT" {
@@ -510,7 +508,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` FLOAT" ]] || false
+    [[ "$output" =~ "\`v\` float" ]] || false
     dolt sql -q "INSERT INTO test VALUES (0, 1.25);"
     run dolt sql -r csv -q "SELECT * FROM test WHERE pk=0"
     [ "$status" -eq "0" ]
@@ -553,7 +551,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` INT" ]] || false
+    [[ "$output" =~ "\`v\` int" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 1073741823);"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -578,7 +576,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` INT UNSIGNED" ]] || false
+    [[ "$output" =~ "\`v\` int unsigned" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 2147483647);"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -603,7 +601,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` INT" ]] || false
+    [[ "$output" =~ "\`v\` int" ]] || false
 }
 
 @test "types: INTEGER UNSIGNED" {
@@ -616,7 +614,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` INT UNSIGNED" ]] || false
+    [[ "$output" =~ "\`v\` int unsigned" ]] || false
 }
 
 @test "types: LONG" {
@@ -629,7 +627,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` MEDIUMTEXT" ]] || false
+    [[ "$output" =~ "\`v\` mediumtext" ]] || false
 }
 
 @test "types: LONG VARCHAR" {
@@ -642,11 +640,10 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` MEDIUMTEXT" ]] || false
+    [[ "$output" =~ "\`v\` mediumtext" ]] || false
 }
 
 @test "types: LONGBLOB" {
-    skip "This is not yet persisted in dolt"
     dolt sql <<SQL
 CREATE TABLE test (
   pk BIGINT NOT NULL,
@@ -656,7 +653,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` LONGBLOB" ]] || false
+    [[ "$output" =~ "\`v\` longblob" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 'abcdefg');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -677,7 +674,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` LONGTEXT" ]] || false
+    [[ "$output" =~ "\`v\` longtext" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 'abcdefg');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -689,7 +686,6 @@ SQL
 }
 
 @test "types: MEDIUMBLOB" {
-    skip "This is not yet persisted in dolt"
     dolt sql <<SQL
 CREATE TABLE test (
   pk BIGINT NOT NULL,
@@ -699,7 +695,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` MEDIUMBLOB" ]] || false
+    [[ "$output" =~ "\`v\` mediumblob" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 'abcdefg');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -720,7 +716,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` MEDIUMINT" ]] || false
+    [[ "$output" =~ "\`v\` mediumint" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 4194303);"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -745,7 +741,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` MEDIUMINT UNSIGNED" ]] || false
+    [[ "$output" =~ "\`v\` mediumint unsigned" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 8388607);"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -770,7 +766,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` MEDIUMTEXT" ]] || false
+    [[ "$output" =~ "\`v\` mediumtext" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 'abcdefg');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -791,7 +787,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` CHAR(10) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci" ]] || false
+    [[ "$output" =~ "\`v\` char(10) character set utf8mb3 collate utf8mb3_general_ci" ]] || false
 }
 
 @test "types: NATIONAL CHARACTER(10)" {
@@ -804,7 +800,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` CHAR(10) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci" ]] || false
+    [[ "$output" =~ "\`v\` char(10) character set utf8mb3 collate utf8mb3_general_ci" ]] || false
 }
 
 @test "types: NATIONAL CHARACTER VARYING(10)" {
@@ -817,7 +813,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` VARCHAR(10) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci" ]] || false
+    [[ "$output" =~ "\`v\` varchar(10) character set utf8mb3 collate utf8mb3_general_ci" ]] || false
 }
 
 @test "types: NATIONAL VARCHAR(10)" {
@@ -830,7 +826,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` VARCHAR(10) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci" ]] || false
+    [[ "$output" =~ "\`v\` varchar(10) character set utf8mb3 collate utf8mb3_general_ci" ]] || false
 }
 
 @test "types: NCHAR(10)" {
@@ -843,7 +839,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` CHAR(10) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci" ]] || false
+    [[ "$output" =~ "\`v\` char(10) character set utf8mb3 collate utf8mb3_general_ci" ]] || false
 }
 
 @test "types: NVARCHAR(10)" {
@@ -856,7 +852,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` VARCHAR(10) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci" ]] || false
+    [[ "$output" =~ "\`v\` varchar(10) character set utf8mb3 collate utf8mb3_general_ci" ]] || false
 }
 
 @test "types: NUMERIC" {
@@ -869,7 +865,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` DECIMAL(10,0)" ]] || false
+    [[ "$output" =~ "\`v\` decimal(10,0)" ]] || false
 }
 
 @test "types: NUMERIC(9)" {
@@ -882,7 +878,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` DECIMAL(9,0)" ]] || false
+    [[ "$output" =~ "\`v\` decimal(9,0)" ]] || false
 }
 
 @test "types: NUMERIC(9,5)" {
@@ -895,7 +891,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` DECIMAL(9,5)" ]] || false
+    [[ "$output" =~ "\`v\` decimal(9,5)" ]] || false
 }
 
 @test "types: REAL" {
@@ -908,7 +904,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` DOUBLE" ]] || false
+    [[ "$output" =~ "\`v\` double" ]] || false
 }
 
 @test "types: SET('a','b','c')" {
@@ -921,7 +917,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` SET('a','b','c')" ]] || false
+    [[ "$output" =~ "\`v\` set('a','b','c')" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 'b,a');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -947,7 +943,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` SMALLINT" ]] || false
+    [[ "$output" =~ "\`v\` smallint" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 16383);"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -972,7 +968,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` SMALLINT UNSIGNED" ]] || false
+    [[ "$output" =~ "\`v\` smallint unsigned" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 32767);"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -997,7 +993,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` TEXT" ]] || false
+    [[ "$output" =~ "\`v\` text" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 'abcdefg');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -1018,7 +1014,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` TIME" ]] || false
+    [[ "$output" =~ "\`v\` time" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, '11:22:33.444444');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -1047,7 +1043,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` TIMESTAMP" ]] || false
+    [[ "$output" =~ "\`v\` timestamp" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, '2020-02-10 11:12:13.456789');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -1067,7 +1063,6 @@ SQL
 }
 
 @test "types: TINYBLOB" {
-    skip "This is not yet persisted in dolt"
     dolt sql <<SQL
 CREATE TABLE test (
   pk BIGINT NOT NULL,
@@ -1077,7 +1072,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` TINYBLOB" ]] || false
+    [[ "$output" =~ "\`v\` tinyblob" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 'abcdefg');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -1098,7 +1093,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` TINYINT" ]] || false
+    [[ "$output" =~ "\`v\` tinyint" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 63);"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -1123,7 +1118,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` TINYINT UNSIGNED" ]] || false
+    [[ "$output" =~ "\`v\` tinyint unsigned" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 127);"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -1148,7 +1143,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` TINYTEXT" ]] || false
+    [[ "$output" =~ "\`v\` tinytext" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 'abcdefg');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -1160,7 +1155,6 @@ SQL
 }
 
 @test "types: VARBINARY(10)" {
-    skip "This is not yet persisted in dolt"
     dolt sql <<SQL
 CREATE TABLE test (
   pk BIGINT NOT NULL,
@@ -1170,7 +1164,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` VARBINARY(10)" ]] || false
+    [[ "$output" =~ "\`v\` varbinary(10)" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 'abcdefg');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -1193,7 +1187,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` VARCHAR(10)" ]] || false
+    [[ "$output" =~ "\`v\` varchar(10)" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 'abcdefg');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -1216,7 +1210,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` VARCHAR(10) CHARACTER SET utf32 COLLATE utf32_general_ci" ]] || false
+    [[ "$output" =~ "\`v\` varchar(10) character set utf32 collate utf32_general_ci" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 'abcdefg');"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]
@@ -1239,7 +1233,7 @@ CREATE TABLE test (
 SQL
     run dolt schema show
     [ "$status" -eq "0" ]
-    [[ "$output" =~ "\`v\` YEAR" ]] || false
+    [[ "$output" =~ "\`v\` year" ]] || false
     dolt sql -q "INSERT INTO test VALUES (1, 1901);"
     run dolt sql -q "SELECT * FROM test"
     [ "$status" -eq "0" ]

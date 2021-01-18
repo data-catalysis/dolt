@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -22,7 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 func TestUuidConvertNomsValueToValue(t *testing.T) {
@@ -128,7 +129,8 @@ func TestUuidConvertValueToNomsValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, UuidType.String(), test.input), func(t *testing.T) {
-			output, err := UuidType.ConvertValueToNomsValue(test.input)
+			vrw := types.NewMemoryValueStore()
+			output, err := UuidType.ConvertValueToNomsValue(context.Background(), vrw, test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output, "%v\n%v", test.output, output)
@@ -192,7 +194,8 @@ func TestUuidParseValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, UuidType.String(), test.input), func(t *testing.T) {
-			output, err := UuidType.ParseValue(&test.input)
+			vrw := types.NewMemoryValueStore()
+			output, err := UuidType.ParseValue(context.Background(), vrw, &test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)

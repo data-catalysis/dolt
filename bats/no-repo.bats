@@ -34,6 +34,7 @@ teardown() {
     [[ "$output" =~ "blame - Show what revision and author last modified each row of a table." ]] || false
     [[ "$output" =~ "merge - Merge a branch." ]] || false
     [[ "$output" =~ "branch - Create, list, edit, delete branches." ]] || false
+    [[ "$output" =~ "tag - Create, list, delete tags" ]] || false
     [[ "$output" =~ "checkout - Checkout a branch or overwrite a table from HEAD." ]] || false
     [[ "$output" =~ "remote - Manage set of tracked repositories." ]] || false
     [[ "$output" =~ "push - Push to a dolt remote." ]] || false
@@ -49,6 +50,35 @@ teardown() {
     [[ "$output" =~ "table - Commands for copying, renaming, deleting, and exporting tables." ]] || false
     [[ "$output" =~ "conflicts - Commands for viewing and resolving merge conflicts." ]] || false
     [[ "$output" =~ "migrate - Executes a repository migration to update to the latest format." ]] || false
+    [[ "$output" =~ "gc - Cleans up unreferenced data from the repository." ]] || false
+    [[ "$output" =~ "filter-branch - Edits the commit history using the provided query." ]] || false
+}
+
+@test "check all commands for valid help text" {
+    # pipe all commands to a file
+    # cut -s suppresses the line if it doesn't contain the delim
+    dolt | cut -f 1 -d " - " -s | sed "s/ //g" > all.txt
+
+    # filter out commands without "-h"
+    cat all.txt \
+        | sed "s/creds//g"     \
+        | sed "s/version//g"   \
+        | sed "s/schema//g"    \
+        | sed "s/table//g"     \
+        | sed "s/conflicts//g" \
+        > commands.txt
+
+    cat commands.txt | while IFS= read -r cmd;
+    do
+        if [ -z "$cmd" ]; then
+            continue
+        fi
+
+        run dolt "$cmd" -h
+        [ "$status" -eq 0 ]
+        [[ "$output" =~ "NAME" ]] || false
+        [[ "$output" =~ "DESCRIPTION" ]] || false
+    done
 }
 
 @test "testing dolt version output" {

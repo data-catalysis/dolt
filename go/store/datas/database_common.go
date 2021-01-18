@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,12 +26,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/liquidata-inc/dolt/go/store/chunks"
-	"github.com/liquidata-inc/dolt/go/store/d"
-	"github.com/liquidata-inc/dolt/go/store/hash"
-	"github.com/liquidata-inc/dolt/go/store/merge"
-	"github.com/liquidata-inc/dolt/go/store/types"
-	"github.com/liquidata-inc/dolt/go/store/util/random"
+	"github.com/dolthub/dolt/go/store/chunks"
+	"github.com/dolthub/dolt/go/store/d"
+	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/merge"
+	"github.com/dolthub/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/util/random"
 )
 
 type database struct {
@@ -60,6 +60,12 @@ func newDatabase(cs chunks.ChunkStore) *database {
 		rt:         vs,
 	}
 }
+
+var _ Database = &database{}
+var _ GarbageCollector = &database{}
+
+var _ rootTracker = &types.ValueStore{}
+var _ GarbageCollector = &types.ValueStore{}
 
 func (db *database) chunkStore() chunks.ChunkStore {
 	return db.ChunkStore()
@@ -158,15 +164,41 @@ func (db *database) SetHead(ctx context.Context, ds Dataset, newHeadRef types.Re
 }
 
 func (db *database) doSetHead(ctx context.Context, ds Dataset, newHeadRef types.Ref) error {
-	if currentHeadRef, ok, err := ds.MaybeHeadRef(); err != nil {
+	newSt, err := newHeadRef.TargetValue(ctx, db)
+
+	if err != nil {
 		return err
-	} else if ok {
+	}
+
+	headType := newSt.(types.Struct).Name()
+
+	currentHeadRef, ok, err := ds.MaybeHeadRef()
+	if err != nil {
+		return err
+	}
+	if ok {
 		if newHeadRef.Equals(currentHeadRef) {
 			return nil
 		}
+
+		currSt, err := currentHeadRef.TargetValue(ctx, db)
+
+		if err != nil {
+			return err
+		}
+
+		headType = currSt.(types.Struct).Name()
 	}
 
-	commit, err := db.validateRefAsCommit(ctx, newHeadRef)
+	// the new head value must match the type of the old head value
+	switch headType {
+	case CommitName:
+		_, err = db.validateRefAsCommit(ctx, newHeadRef)
+	case TagName:
+		err = db.validateTag(ctx, newSt.(types.Struct))
+	default:
+		return fmt.Errorf("Unrecognized dataset value: %s", headType)
+	}
 
 	if err != nil {
 		return err
@@ -184,13 +216,13 @@ func (db *database) doSetHead(ctx context.Context, ds Dataset, newHeadRef types.
 		return err
 	}
 
-	commitRef, err := db.WriteValue(ctx, commit) // will be orphaned if the tryCommitChunks() below fails
+	refSt, err := db.WriteValue(ctx, newSt) // will be orphaned if the tryCommitChunks() below fails
 
 	if err != nil {
 		return err
 	}
 
-	ref, err := types.ToRefOfValue(commitRef, db.Format())
+	ref, err := types.ToRefOfValue(refSt, db.Format())
 
 	if err != nil {
 		return err
@@ -335,7 +367,7 @@ func (db *database) doCommit(ctx context.Context, datasetID string, commit types
 					return err
 				}
 
-				ancestorRef, found, err := FindCommonAncestor(ctx, commitRef, currentHeadRef, db)
+				ancestorRef, found, err := FindCommonAncestor(ctx, commitRef, currentHeadRef, db, db)
 
 				if err != nil {
 					return err
@@ -417,6 +449,78 @@ func (db *database) doCommit(ctx context.Context, datasetID string, commit types
 	return tryCommitErr
 }
 
+func (db *database) Tag(ctx context.Context, ds Dataset, ref types.Ref, opts TagOptions) (Dataset, error) {
+	return db.doHeadUpdate(
+		ctx,
+		ds,
+		func(ds Dataset) error {
+			st, err := NewTag(ctx, ref, opts.Meta)
+
+			if err != nil {
+				return err
+			}
+
+			return db.doTag(ctx, ds.ID(), st)
+		},
+	)
+}
+
+// doTag manages concurrent access the single logical piece of mutable state: the current Root. It uses
+// the same optimistic writing algorithm as doCommit (see above).
+func (db *database) doTag(ctx context.Context, datasetID string, tag types.Struct) error {
+	err := db.validateTag(ctx, tag)
+
+	if err != nil {
+		return err
+	}
+
+	// This could loop forever, given enough simultaneous writers. BUG 2565
+	var tryCommitErr error
+	for tryCommitErr = ErrOptimisticLockFailed; tryCommitErr == ErrOptimisticLockFailed; {
+		currentRootHash, err := db.rt.Root(ctx)
+
+		if err != nil {
+			return err
+		}
+
+		currentDatasets, err := db.Datasets(ctx)
+
+		if err != nil {
+			return err
+		}
+
+		tagRef, err := db.WriteValue(ctx, tag) // will be orphaned if the tryCommitChunks() below fails
+
+		if err != nil {
+			return err
+		}
+
+		_, hasHead, err := currentDatasets.MaybeGet(ctx, types.String(datasetID))
+
+		if err != nil {
+			return err
+		}
+
+		if hasHead {
+			return fmt.Errorf(fmt.Sprintf("tag %s already exists and cannot be altered after creation", datasetID))
+		}
+
+		ref, err := types.ToRefOfValue(tagRef, db.Format())
+		if err != nil {
+			return err
+		}
+
+		currentDatasets, err = currentDatasets.Edit().Set(types.String(datasetID), ref).Map(ctx)
+		if err != nil {
+			return err
+		}
+
+		tryCommitErr = db.tryCommitChunks(ctx, currentDatasets, currentRootHash)
+	}
+
+	return tryCommitErr
+}
+
 func (db *database) Delete(ctx context.Context, ds Dataset) (Dataset, error) {
 	return db.doHeadUpdate(ctx, ds, func(ds Dataset) error { return db.doDelete(ctx, ds.ID()) })
 }
@@ -477,6 +581,11 @@ func (db *database) doDelete(ctx context.Context, datasetIDstr string) error {
 	return err
 }
 
+// GC traverses the database starting at the Root and removes all unreferenced data from persistent storage.
+func (db *database) GC(ctx context.Context) error {
+	return db.ValueStore.GC(ctx)
+}
+
 func (db *database) tryCommitChunks(ctx context.Context, currentDatasets types.Map, currentRootHash hash.Hash) error {
 	newRoot, err := db.WriteValue(ctx, currentDatasets)
 
@@ -517,6 +626,32 @@ func (db *database) validateRefAsCommit(ctx context.Context, r types.Ref) (types
 	}
 
 	return v.(types.Struct), nil
+}
+
+func (db *database) validateTag(ctx context.Context, t types.Struct) error {
+	is, err := IsTag(t)
+	if err != nil {
+		return err
+	}
+	if !is {
+		return fmt.Errorf("Tag struct %s is malformed, IsTag() == false", t.String())
+	}
+
+	r, ok, err := t.MaybeGet(TagCommitRefField)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("tag is missing field %s", TagCommitRefField)
+	}
+
+	_, err = db.validateRefAsCommit(ctx, r.(types.Ref))
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func buildNewCommit(ctx context.Context, ds Dataset, v types.Value, opts CommitOptions) (types.Struct, error) {

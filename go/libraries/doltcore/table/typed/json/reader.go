@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,16 +22,16 @@ import (
 
 	"github.com/bcicen/jstream"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/filesys"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 var ReadBufSize = 256 * 1024
 
 type JSONReader struct {
-	nbf        *types.NomsBinFormat
+	vrw        types.ValueReadWriter
 	closer     io.Closer
 	sch        schema.Schema
 	jsonStream *jstream.Decoder
@@ -39,29 +39,23 @@ type JSONReader struct {
 	sampleRow  row.Row
 }
 
-func OpenJSONReader(nbf *types.NomsBinFormat, path string, fs filesys.ReadableFS, sch schema.Schema) (*JSONReader, error) {
+func OpenJSONReader(vrw types.ValueReadWriter, path string, fs filesys.ReadableFS, sch schema.Schema) (*JSONReader, error) {
 	r, err := fs.OpenForRead(path)
-
 	if err != nil {
 		return nil, err
 	}
 
-	return newJsonReader(nbf, r, fs, sch, path)
+	return NewJSONReader(vrw, r, sch)
 }
 
-func newJsonReader(nbf *types.NomsBinFormat, r io.ReadCloser, fs filesys.ReadableFS, sch schema.Schema, tblPath string) (*JSONReader, error) {
+func NewJSONReader(vrw types.ValueReadWriter, r io.ReadCloser, sch schema.Schema) (*JSONReader, error) {
 	if sch == nil {
 		return nil, errors.New("schema must be provided to JsonReader")
 	}
 
-	tblData, err := fs.OpenForRead(tblPath)
-	if err != nil {
-		return nil, err
-	}
+	decoder := jstream.NewDecoder(r, 2) // extract JSON values at a depth level of 1
 
-	decoder := jstream.NewDecoder(tblData, 2) // extract JSON values at a depth level of 1
-
-	return &JSONReader{nbf: nbf, closer: r, sch: sch, jsonStream: decoder}, nil
+	return &JSONReader{vrw: vrw, closer: r, sch: sch, jsonStream: decoder}, nil
 }
 
 // Close should release resources being held
@@ -91,10 +85,6 @@ func (r *JSONReader) VerifySchema(sch schema.Schema) (bool, error) {
 }
 
 func (r *JSONReader) ReadRow(ctx context.Context) (row.Row, error) {
-	if r.jsonStream.Err() != nil {
-		return nil, r.jsonStream.Err()
-	}
-
 	if r.sampleRow != nil {
 		ret := r.sampleRow
 		r.sampleRow = nil
@@ -117,10 +107,10 @@ func (r *JSONReader) ReadRow(ctx context.Context) (row.Row, error) {
 	if !ok {
 		return nil, fmt.Errorf("Unexpected json value: %v", row.Value)
 	}
-	return r.convToRow(m)
+	return r.convToRow(ctx, m)
 }
 
-func (r *JSONReader) convToRow(rowMap map[string]interface{}) (row.Row, error) {
+func (r *JSONReader) convToRow(ctx context.Context, rowMap map[string]interface{}) (row.Row, error) {
 	allCols := r.sch.GetAllCols()
 
 	taggedVals := make(row.TaggedValues, allCols.Size())
@@ -133,7 +123,7 @@ func (r *JSONReader) convToRow(rowMap map[string]interface{}) (row.Row, error) {
 
 		switch v.(type) {
 		case int, string, bool, float64:
-			taggedVals[col.Tag], _ = col.TypeInfo.ConvertValueToNomsValue(v)
+			taggedVals[col.Tag], _ = col.TypeInfo.ConvertValueToNomsValue(ctx, r.vrw, v)
 		}
 
 	}
@@ -149,5 +139,5 @@ func (r *JSONReader) convToRow(rowMap map[string]interface{}) (row.Row, error) {
 		return nil, err
 	}
 
-	return row.New(r.nbf, r.sch, taggedVals)
+	return row.New(r.vrw.Format(), r.sch, taggedVals)
 }

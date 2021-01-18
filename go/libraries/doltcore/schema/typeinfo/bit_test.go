@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strconv"
@@ -23,7 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 func TestBitConvertNomsValueToValue(t *testing.T) {
@@ -56,18 +57,6 @@ func TestBitConvertNomsValueToValue(t *testing.T) {
 			math.MaxUint64,
 			math.MaxUint64,
 			false,
-		},
-		{
-			generateBitType(t, 1),
-			7,
-			0,
-			true,
-		},
-		{
-			generateBitType(t, 10),
-			374562394,
-			0,
-			true,
 		},
 	}
 
@@ -119,7 +108,7 @@ func TestBitConvertValueToNomsValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, test.typ.String(), test.input), func(t *testing.T) {
-			output, err := test.typ.ConvertValueToNomsValue(test.input)
+			output, err := test.typ.ConvertValueToNomsValue(context.Background(), nil, test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)
@@ -160,18 +149,6 @@ func TestBitFormatValue(t *testing.T) {
 			math.MaxUint64,
 			strconv.FormatUint(math.MaxUint64, 10),
 			false,
-		},
-		{
-			generateBitType(t, 1),
-			7,
-			"",
-			true,
-		},
-		{
-			generateBitType(t, 10),
-			374562394,
-			"",
-			true,
 		},
 	}
 
@@ -223,7 +200,7 @@ func TestBitParseValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, test.typ.String(), test.input), func(t *testing.T) {
-			output, err := test.typ.ParseValue(&test.input)
+			output, err := test.typ.ParseValue(context.Background(), nil, &test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)

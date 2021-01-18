@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,17 +17,17 @@ package cnfcmds
 import (
 	"context"
 
-	eventsapi "github.com/liquidata-inc/dolt/go/gen/proto/dolt/services/eventsapi/v1alpha1"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/filesys"
+	eventsapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/eventsapi/v1alpha1"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
 
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/cli"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/commands"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/errhand"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env/actions"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/merge"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/argparser"
+	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/dolthub/dolt/go/cmd/dolt/commands"
+	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env/actions"
+	"github.com/dolthub/dolt/go/libraries/doltcore/merge"
+	"github.com/dolthub/dolt/go/libraries/utils/argparser"
 )
 
 var resDocumentation = cli.CommandDocumentationContent{
@@ -178,7 +178,7 @@ func manualResolve(ctx context.Context, apr *argparser.ArgParseResults, dEnv *en
 		return errhand.BuildDError("error: failed to get schema").AddCause(err).Build()
 	}
 
-	keysToResolve, err := cli.ParseKeyValues(root.VRW().Format(), sch, args[1:])
+	keysToResolve, err := cli.ParseKeyValues(ctx, root.VRW(), sch, args[1:])
 
 	if err != nil {
 		return errhand.BuildDError("error: parsing command line").AddCause(err).Build()
@@ -210,7 +210,7 @@ func manualResolve(ctx context.Context, apr *argparser.ArgParseResults, dEnv *en
 		return errhand.BuildDError("error: failed to get table hash").AddCause(err).Build()
 	}
 
-	if hash == updatedHash {
+	if hash != updatedHash {
 		root, err := root.PutTable(ctx, tblName, updatedTbl)
 
 		if err != nil {

@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,13 +20,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
-	"github.com/liquidata-inc/go-mysql-server/sql/expression"
+	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql/expression"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 func TestGetComparisonType(t *testing.T) {
@@ -208,7 +208,8 @@ func TestNewComparisonFunc(t *testing.T) {
 		schema.NewColumn("col1", 1, types.IntKind, false),
 		schema.NewColumn("date", 2, types.TimestampKind, false),
 	)
-	testSch := schema.SchemaFromCols(colColl)
+	testSch, err := schema.SchemaFromCols(colColl)
+	require.NoError(t, err)
 
 	const (
 		eq  string = "eq"

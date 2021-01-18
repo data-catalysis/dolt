@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,9 +29,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/liquidata-inc/dolt/go/store/atomicerr"
-	"github.com/liquidata-inc/dolt/go/store/chunks"
-	"github.com/liquidata-inc/dolt/go/store/d"
+	"github.com/dolthub/dolt/go/store/atomicerr"
+	"github.com/dolthub/dolt/go/store/chunks"
+	"github.com/dolthub/dolt/go/store/d"
 )
 
 const testListSize = 5000
@@ -826,7 +826,7 @@ func TestListModifyAfterRead(t *testing.T) {
 func accumulateDiffSplices(l1, l2 List) (diff []Splice) {
 	diffChan := make(chan Splice)
 	go func() {
-		err := l1.Diff(context.Background(), l2, diffChan, nil)
+		err := l1.Diff(context.Background(), l2, diffChan)
 		d.PanicIfError(err)
 		close(diffChan)
 	}()
@@ -840,7 +840,7 @@ func accumulateDiffSplicesWithLimit(l1, l2 List, maxSpliceMatrixSize uint64) (di
 	diffChan := make(chan Splice)
 
 	go func() {
-		err = l1.DiffWithLimit(context.Background(), l2, diffChan, nil, maxSpliceMatrixSize)
+		err = l1.DiffWithLimit(context.Background(), l2, diffChan, maxSpliceMatrixSize)
 		close(diffChan)
 	}()
 

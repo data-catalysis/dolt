@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@
 package types
 
 import (
-	"github.com/liquidata-inc/dolt/go/store/d"
+	"github.com/dolthub/dolt/go/store/d"
 )
 
 type mapLeafSequence struct {
@@ -316,7 +316,7 @@ func (ml mapLeafSequence) search(key orderedKey) (int, error) {
 
 func (ml mapLeafSequence) getValue(idx int) (Value, error) {
 	dec := ml.decoderSkipToIndex(idx)
-	err := dec.skipValue(ml.format())
+	err := dec.SkipValue(ml.format())
 
 	if err != nil {
 		return nil, err

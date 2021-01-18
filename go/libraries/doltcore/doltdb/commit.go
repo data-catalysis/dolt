@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,13 +18,13 @@ import (
 	"context"
 	"errors"
 
-	"github.com/liquidata-inc/dolt/go/store/datas"
-	"github.com/liquidata-inc/dolt/go/store/hash"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/datas"
+	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 const (
-	metaField        = datas.MetaField
+	metaField        = datas.CommitMetaField
 	parentsField     = datas.ParentsField
 	parentsListField = datas.ParentsListField
 	rootValueField   = datas.ValueField
@@ -130,6 +130,7 @@ func (c *Commit) GetCommitMeta() (*CommitMeta, error) {
 	return nil, errors.New(h.String() + " is a commit without the required metadata.")
 }
 
+// ParentHashes returns the commit hashes for all parent commits.
 func (c *Commit) ParentHashes(ctx context.Context) ([]hash.Hash, error) {
 	hashes := make([]hash.Hash, len(c.parents))
 	for i, pr := range c.parents {
@@ -178,6 +179,11 @@ func (c *Commit) GetRootValue() (*RootValue, error) {
 	return nil, errHasNoRootValue
 }
 
+// GetStRef returns a Noms Ref for this Commit's Noms commit Struct.
+func (c *Commit) GetStRef() (types.Ref, error) {
+	return types.NewRef(c.commitSt, c.vrw.Format())
+}
+
 var ErrNoCommonAncestor = errors.New("no common ancestor")
 
 func GetCommitAncestor(ctx context.Context, cm1, cm2 *Commit) (*Commit, error) {
@@ -193,7 +199,7 @@ func GetCommitAncestor(ctx context.Context, cm1, cm2 *Commit) (*Commit, error) {
 		return nil, err
 	}
 
-	ref, err := getCommitAncestorRef(ctx, ref1, ref2, cm1.vrw)
+	ref, err := getCommitAncestorRef(ctx, ref1, ref2, cm1.vrw, cm2.vrw)
 
 	if err != nil {
 		return nil, err
@@ -214,8 +220,8 @@ func GetCommitAncestor(ctx context.Context, cm1, cm2 *Commit) (*Commit, error) {
 	return NewCommit(cm1.vrw, ancestorSt), nil
 }
 
-func getCommitAncestorRef(ctx context.Context, ref1, ref2 types.Ref, vrw types.ValueReadWriter) (types.Ref, error) {
-	ancestorRef, ok, err := datas.FindCommonAncestor(ctx, ref1, ref2, vrw)
+func getCommitAncestorRef(ctx context.Context, ref1, ref2 types.Ref, vrw1, vrw2 types.ValueReadWriter) (types.Ref, error) {
+	ancestorRef, ok, err := datas.FindCommonAncestor(ctx, ref1, ref2, vrw1, vrw2)
 
 	if err != nil {
 		return types.Ref{}, err

@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,26 +23,31 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
+	"github.com/opentracing/opentracing-go"
 	"github.com/pkg/profile"
+	"github.com/uber/jaeger-client-go"
+	"github.com/uber/jaeger-client-go/transport"
 
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/cli"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/commands"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/commands/cnfcmds"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/commands/credcmds"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/commands/indexcmds"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/commands/schcmds"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/commands/sqlserver"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/commands/tblcmds"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/dbfactory"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/events"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/filesys"
-	"github.com/liquidata-inc/dolt/go/store/util/tempfiles"
+	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/dolthub/dolt/go/cmd/dolt/commands"
+	"github.com/dolthub/dolt/go/cmd/dolt/commands/cnfcmds"
+	"github.com/dolthub/dolt/go/cmd/dolt/commands/credcmds"
+	"github.com/dolthub/dolt/go/cmd/dolt/commands/indexcmds"
+	"github.com/dolthub/dolt/go/cmd/dolt/commands/schcmds"
+	"github.com/dolthub/dolt/go/cmd/dolt/commands/sqlserver"
+	"github.com/dolthub/dolt/go/cmd/dolt/commands/tblcmds"
+	"github.com/dolthub/dolt/go/libraries/doltcore/dbfactory"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dfunctions"
+	"github.com/dolthub/dolt/go/libraries/events"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/dolthub/dolt/go/store/util/tempfiles"
 )
 
 const (
-	Version = "0.18.2"
+	Version = "0.22.8"
 )
 
 var dumpDocsCommand = &commands.DumpDocsCmd{}
@@ -54,11 +59,13 @@ var doltCommand = cli.NewSubCommandHandler("dolt", "it's git for data", []cli.Co
 	commands.CommitCmd{},
 	commands.SqlCmd{VersionStr: Version},
 	sqlserver.SqlServerCmd{VersionStr: Version},
+	sqlserver.SqlClientCmd{},
 	commands.LogCmd{},
 	commands.DiffCmd{},
 	commands.BlameCmd{},
 	commands.MergeCmd{},
 	commands.BranchCmd{},
+	commands.TagCmd{},
 	commands.CheckoutCmd{},
 	commands.RemoteCmd{},
 	commands.PushCmd{},
@@ -78,21 +85,26 @@ var doltCommand = cli.NewSubCommandHandler("dolt", "it's git for data", []cli.Co
 	commands.MigrateCmd{},
 	indexcmds.Commands,
 	commands.ReadTablesCmd{},
-	commands.TagCmd{},
+	commands.GarbageCollectionCmd{},
+	commands.FilterBranchCmd{},
+	commands.VerifyConstraintsCmd{},
 })
 
 func init() {
 	dumpDocsCommand.DoltCommand = doltCommand
-	sqlserver.CliVersion = Version
+	dfunctions.VersionString = Version
 }
 
 const chdirFlag = "--chdir"
+const jaegerFlag = "--jaeger"
 const profFlag = "--prof"
 const csMetricsFlag = "--csmetrics"
 const cpuProf = "cpu"
 const memProf = "mem"
 const blockingProf = "blocking"
 const traceProf = "trace"
+
+const keylessFeatureFlag = "--keyless"
 
 func main() {
 	os.Exit(runMain())
@@ -125,6 +137,30 @@ func runMain() int {
 				}
 				args = args[2:]
 
+			// Enable a global jaeger tracer for this run of Dolt,
+			// emitting traces to a collector running at
+			// localhost:14268. To visualize these traces, run:
+			// docker run -d --name jaeger \
+			//    -e COLLECTOR_ZIPKIN_HTTP_PORT=9411 \
+			//    -p 5775:5775/udp \
+			//    -p 6831:6831/udp \
+			//    -p 6832:6832/udp \
+			//    -p 5778:5778 \
+			//    -p 16686:16686 \
+			//    -p 14268:14268 \
+			//    -p 14250:14250 \
+			//    -p 9411:9411 \
+			//    jaegertracing/all-in-one:1.21
+			// and browse to http://localhost:16686
+			case jaegerFlag:
+				fmt.Println("running with jaeger tracing reporting to localhost")
+				transport := transport.NewHTTPTransport("http://localhost:14268/api/traces?format=jaeger.thrift", transport.HTTPBatchSize(128000))
+				reporter := jaeger.NewRemoteReporter(transport)
+				tracer, closer := jaeger.NewTracer("dolt", jaeger.NewConstSampler(true), reporter)
+				opentracing.SetGlobalTracer(tracer)
+				defer closer.Close()
+				args = args[1:]
+
 			// Currently goland doesn't support running with a different working directory when using go modules.
 			// This is a hack that allows a different working directory to be set after the application starts using
 			// chdir=<DIR>.  The syntax is not flexible and must match exactly this.
@@ -139,6 +175,10 @@ func runMain() int {
 
 			case csMetricsFlag:
 				csMetrics = true
+				args = args[1:]
+
+			case keylessFeatureFlag:
+				schema.FeatureFlagKeylessSchema = true
 				args = args[1:]
 
 			default:
@@ -237,6 +277,7 @@ func commandNeedsMigrationCheck(args []string) bool {
 		commands.CommitCmd{},
 		commands.SqlCmd{},
 		sqlserver.SqlServerCmd{},
+		sqlserver.SqlClientCmd{},
 		commands.DiffCmd{},
 		commands.MergeCmd{},
 		commands.BranchCmd{},

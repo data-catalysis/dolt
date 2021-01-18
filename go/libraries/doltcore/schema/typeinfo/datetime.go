@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,13 +15,14 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
 	"time"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
-	"github.com/liquidata-inc/vitess/go/sqltypes"
+	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/dolthub/vitess/go/sqltypes"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 const (
@@ -61,9 +62,11 @@ func CreateDatetimeTypeFromParams(params map[string]string) (TypeInfo, error) {
 
 // ConvertNomsValueToValue implements TypeInfo interface.
 func (ti *datetimeType) ConvertNomsValueToValue(v types.Value) (interface{}, error) {
-	//TODO: handle the zero value as a special case that is valid for all ranges
 	if val, ok := v.(types.Timestamp); ok {
-		return ti.sqlDatetimeType.Convert(time.Time(val))
+		if ti.Equals(DateType) {
+			return time.Time(val).Truncate(24 * time.Hour).UTC(), nil
+		}
+		return time.Time(val).UTC(), nil
 	}
 	if _, ok := v.(types.Null); ok || v == nil {
 		return nil, nil
@@ -71,8 +74,30 @@ func (ti *datetimeType) ConvertNomsValueToValue(v types.Value) (interface{}, err
 	return nil, fmt.Errorf(`"%v" cannot convert NomsKind "%v" to a value`, ti.String(), v.Kind())
 }
 
+// ReadFrom reads a go value from a noms types.CodecReader directly
+func (ti *datetimeType) ReadFrom(_ *types.NomsBinFormat, reader types.CodecReader) (interface{}, error) {
+	k := reader.ReadKind()
+	switch k {
+	case types.TimestampKind:
+		t, err := reader.ReadTimestamp()
+
+		if err != nil {
+			return nil, err
+		}
+
+		if ti.Equals(DateType) {
+			return t.Truncate(24 * time.Hour).UTC(), nil
+		}
+		return t.UTC(), nil
+	case types.NullKind:
+		return nil, nil
+	}
+
+	return nil, fmt.Errorf(`"%v" cannot convert NomsKind "%v" to a value`, ti.String(), k)
+}
+
 // ConvertValueToNomsValue implements TypeInfo interface.
-func (ti *datetimeType) ConvertValueToNomsValue(v interface{}) (types.Value, error) {
+func (ti *datetimeType) ConvertValueToNomsValue(ctx context.Context, vrw types.ValueReadWriter, v interface{}) (types.Value, error) {
 	//TODO: handle the zero value as a special case that is valid for all ranges
 	if v == nil {
 		return types.NullValue, nil
@@ -144,8 +169,17 @@ func (ti *datetimeType) GetTypeParams() map[string]string {
 
 // IsValid implements TypeInfo interface.
 func (ti *datetimeType) IsValid(v types.Value) bool {
-	_, err := ti.ConvertNomsValueToValue(v)
-	return err == nil
+	if val, ok := v.(types.Timestamp); ok {
+		_, err := ti.sqlDatetimeType.Convert(time.Time(val))
+		if err != nil {
+			return false
+		}
+		return true
+	}
+	if _, ok := v.(types.Null); ok || v == nil {
+		return true
+	}
+	return false
 }
 
 // NomsKind implements TypeInfo interface.
@@ -154,7 +188,7 @@ func (ti *datetimeType) NomsKind() types.NomsKind {
 }
 
 // ParseValue implements TypeInfo interface.
-func (ti *datetimeType) ParseValue(str *string) (types.Value, error) {
+func (ti *datetimeType) ParseValue(ctx context.Context, vrw types.ValueReadWriter, str *string) (types.Value, error) {
 	if str == nil || *str == "" {
 		return types.NullValue, nil
 	}
@@ -166,6 +200,11 @@ func (ti *datetimeType) ParseValue(str *string) (types.Value, error) {
 		return types.Timestamp(val), nil
 	}
 	return nil, fmt.Errorf(`"%v" cannot convert the string "%v" to a value`, ti.String(), str)
+}
+
+// Promote implements TypeInfo interface.
+func (ti *datetimeType) Promote() TypeInfo {
+	return &datetimeType{ti.sqlDatetimeType.Promote().(sql.DatetimeType)}
 }
 
 // String implements TypeInfo interface.

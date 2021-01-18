@@ -185,7 +185,31 @@ SQL
 
     run dolt sql -r json -q "select * from test order by a"
     [ $status -eq 0 ]
-    [ "$output" == '{"rows": [{"a":1,"b":1.5,"c":"1","d":"2020-01-01 00:00:00"},{"a":2,"b":2.5,"c":"2","d":"2020-02-02 00:00:00"},{"a":3,"c":"3","d":"2020-03-03 00:00:00"},{"a":4,"b":4.5,"d":"2020-04-04 00:00:00"},{"a":5,"b":5.5,"c":"5"}]}' ]
+    echo $output
+    [ "$output" == '{"rows": [{"a":1,"b":1.5,"c":"1","d":"2020-01-01 00:00:00 +0000 UTC"},{"a":2,"b":2.5,"c":"2","d":"2020-02-02 00:00:00 +0000 UTC"},{"a":3,"c":"3","d":"2020-03-03 00:00:00 +0000 UTC"},{"a":4,"b":4.5,"d":"2020-04-04 00:00:00 +0000 UTC"},{"a":5,"b":5.5,"c":"5"}]}' ]
+}
+
+@test "sql output for escaped longtext exports properly" {
+ dolt sql <<SQL
+    CREATE TABLE test (
+    a int primary key,
+    v LONGTEXT
+);
+SQL
+dolt sql <<SQL
+    insert into test values (1, "{""key"": ""value""}");
+    insert into test values (2, """Hello""");
+SQL
+
+    run dolt sql -r json -q "select * from test order by a"
+    [ $status -eq 0 ]
+    [ "$output" == '{"rows": [{"a":1,"v":"{\"key\": \"value\"}"},{"a":2,"v":"\"Hello\""}]}' ]
+
+    run dolt sql -r csv -q "select * from test order by a"
+    [ $status -eq 0 ]
+    [[ "$output" =~ "a,v" ]] || false
+    [[ "$output" =~ '1,"{""key"": ""value""}"' ]] || false
+    [[ "$output" =~ '2,"""Hello"""' ]] || false
 }
 
 @test "sql ambiguous column name" {
@@ -203,7 +227,7 @@ SQL
 @test "sql select the same column twice using column aliases" {
     run dolt sql -q "select pk,c1 as foo,c1 as bar from one_pk"
     [ "$status" -eq 0 ]
-    [[ ! "$output" =~ "<NULL>" ]] || false
+    [[ ! "$output" =~ "NULL" ]] || false
     [[ "$output" =~ "foo" ]] || false
     [[ "$output" =~ "bar" ]] || false
 }
@@ -211,7 +235,7 @@ SQL
 @test "sql select same column twice using table aliases" {
     run dolt sql -q "select foo.pk,foo.c1,bar.c1 from one_pk as foo, one_pk as bar"
     [ "$status" -eq 0 ]
-    [[ ! "$output" =~ "<NULL>" ]] || false
+    [[ ! "$output" =~ "NULL" ]] || false
     [[ "$output" =~ "c1" ]] || false
 }
 
@@ -497,12 +521,12 @@ SQL
     dolt sql -q "alter table one_pk modify column c5 bigint"
     run dolt schema show one_pk
     [ $status -eq 0 ]
-    [[ "$output" =~ '`pk` BIGINT NOT NULL COMMENT' ]] || false
-    [[ "$output" =~ '`c1` BIGINT COMMENT' ]] || false
-    [[ "$output" =~ '`c2` BIGINT COMMENT' ]] || false
-    [[ "$output" =~ '`c3` BIGINT COMMENT' ]] || false
-    [[ "$output" =~ '`c4` BIGINT COMMENT' ]] || false
-    [[ "$output" =~ '`c5` BIGINT COMMENT' ]] || false
+    [[ "$output" =~ '`pk` bigint NOT NULL' ]] || false
+    [[ "$output" =~ '`c1` bigint' ]] || false
+    [[ "$output" =~ '`c2` bigint' ]] || false
+    [[ "$output" =~ '`c3` bigint' ]] || false
+    [[ "$output" =~ '`c4` bigint' ]] || false
+    [[ "$output" =~ '`c5` bigint' ]] || false
     [[ "$output" =~ 'PRIMARY KEY (`pk`)' ]] || false
 }
 
@@ -511,25 +535,13 @@ SQL
     dolt sql -q "alter table one_pk change column c5 c5 bigint"
     run dolt schema show one_pk
     [ $status -eq 0 ]
-    [[ "$output" =~ '`pk` BIGINT NOT NULL COMMENT' ]] || false
-    [[ "$output" =~ '`c1` BIGINT COMMENT' ]] || false
-    [[ "$output" =~ '`c2` BIGINT COMMENT' ]] || false
-    [[ "$output" =~ '`c3` BIGINT COMMENT' ]] || false
-    [[ "$output" =~ '`c4` BIGINT COMMENT' ]] || false
-    [[ "$output" =~ '`c5` BIGINT COMMENT' ]] || false
+    [[ "$output" =~ '`pk` bigint NOT NULL' ]] || false
+    [[ "$output" =~ '`c1` bigint' ]] || false
+    [[ "$output" =~ '`c2` bigint' ]] || false
+    [[ "$output" =~ '`c3` bigint' ]] || false
+    [[ "$output" =~ '`c4` bigint' ]] || false
+    [[ "$output" =~ '`c5` bigint' ]] || false
     [[ "$output" =~ 'PRIMARY KEY (`pk`)' ]] || false
-}
-
-@test "sql alter table modify column with tag change" {
-    run dolt sql -q "alter table one_pk modify column c5 bigint comment 'tag:9999'"
-    [ $status -eq 1 ]
-    [[ "$output" =~ "cannot change the tag of an existing column" ]] || false
-}
-
-@test "sql alter table change column with tag change" {
-    run dolt sql -q "alter table one_pk change column c5 c5 bigint comment 'tag:9999'"
-    [ $status -eq 1 ]
-    [[ "$output" =~ "cannot change the tag of an existing column" ]] || false
 }
 
 @test "sql drop table" {
@@ -578,24 +590,24 @@ SQL
 }
 
 @test "sql select union all" {
-    run dolt sql -q "SELECT 2+2 FROM dual UNION ALL SELECT 2+2 FROM dual UNION ALL SELECT 2+3 FROM dual;"
+    run dolt sql -r csv -q "SELECT 2+2 FROM dual UNION ALL SELECT 2+2 FROM dual UNION ALL SELECT 2+3 FROM dual;"
     [ $status -eq 0 ]
-    [ "${#lines[@]}" -eq 7 ]
+    [ "${#lines[@]}" -eq 4 ]
 }
 
 @test "sql select union" {
-    run dolt sql -q "SELECT 2+2 FROM dual UNION SELECT 2+2 FROM dual UNION SELECT 2+3 FROM dual;"
+    run dolt sql -r csv -q "SELECT 2+2 FROM dual UNION SELECT 2+2 FROM dual UNION SELECT 2+3 FROM dual;"
     [ $status -eq 0 ]
-    [ "${#lines[@]}" -eq 7 ]
-    run dolt sql -q "SELECT 2+2 FROM dual UNION DISTINCT SELECT 2+2 FROM dual UNION SELECT 2+3 FROM dual;"
+    [ "${#lines[@]}" -eq 3 ]
+    run dolt sql -r csv -q "SELECT 2+2 FROM dual UNION DISTINCT SELECT 2+2 FROM dual UNION SELECT 2+3 FROM dual;"
     [ $status -eq 0 ]
-    [ "${#lines[@]}" -eq 6 ]
-    run dolt sql -q "(SELECT 2+2 FROM dual UNION DISTINCT SELECT 2+2 FROM dual) UNION SELECT 2+3 FROM dual;"
+    [ "${#lines[@]}" -eq 3 ]
+    run dolt sql -r csv -q "(SELECT 2+2 FROM dual UNION DISTINCT SELECT 2+2 FROM dual) UNION SELECT 2+3 FROM dual;"
     [ $status -eq 0 ]
-    [ "${#lines[@]}" -eq 6 ]
-    run dolt sql -q "SELECT 2+2 FROM dual UNION DISTINCT (SELECT 2+2 FROM dual UNION SELECT 2+3 FROM dual);"
+    [ "${#lines[@]}" -eq 3 ]
+    run dolt sql -r csv -q "SELECT 2+2 FROM dual UNION DISTINCT (SELECT 2+2 FROM dual UNION SELECT 2+3 FROM dual);"
     [ $status -eq 0 ]
-    [ "${#lines[@]}" -eq 6 ]
+    [ "${#lines[@]}" -eq 3 ]
 }
 
 @test "sql greatest/least with a timestamp" {
@@ -611,7 +623,7 @@ SQL
     run dolt sql -q "SELECT GREATEST(CAST(NOW() AS CHAR), CAST(NULL AS CHAR)) FROM dual;"
     [ $status -eq 0 ]
     [ "${#lines[@]}" -eq 5 ]
-    [[ "${lines[3]}" =~ " <NULL> " ]] || false
+    [[ "${lines[3]}" =~ " NULL " ]] || false
 }
 
 @test "sql date_format function" {
@@ -668,15 +680,16 @@ SQL
 @test "sql divide by zero does not panic" {
     run dolt sql -q "select 1/0 from dual"
     [ $status -eq 0 ]
-    [[ "$output" =~ " NULL " ]] || false
+    echo $output
+    [[ "$output" =~ "NULL" ]] || false
     [[ ! "$output" =~ "panic: " ]] || false
     run dolt sql -q "select 1.0/0.0 from dual"
     [ $status -eq 0 ]
-    [[ "$output" =~ " NULL " ]] || false
+    [[ "$output" =~ "NULL" ]] || false
     [[ ! "$output" =~ "panic: " ]] || false
     run dolt sql -q "select 1 div 0 from dual"
     [ $status -eq 0 ]
-    [[ "$output" =~ " NULL " ]] || false
+    [[ "$output" =~ "NULL" ]] || false
     [[ ! "$output" =~ "panic: " ]] || false
 }
 
@@ -754,4 +767,10 @@ SQL
     run dolt sql -r json -q "select * from has_datetimes"
     [ $status -eq 0 ]
     [[ "$output" =~ "2020-02-17 00:00:00" ]] || false
+}
+
+@test "dolt_version() func" {
+    SQL=$(dolt sql -q 'select dolt_version() from dual;' -r csv | tail -n 1)
+    CLI=$(dolt version | cut -f 3 -d ' ')
+    [ "$SQL" == "$CLI" ]
 }

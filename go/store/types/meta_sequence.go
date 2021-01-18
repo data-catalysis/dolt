@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,8 +25,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/liquidata-inc/dolt/go/store/d"
-	"github.com/liquidata-inc/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/libraries/utils/tracing"
+	"github.com/dolthub/dolt/go/store/d"
+	"github.com/dolthub/dolt/go/store/hash"
 )
 
 var emptyKey = orderedKey{}
@@ -231,7 +232,7 @@ func (ms metaSequence) tuples() ([]metaTuple, error) {
 
 func (ms metaSequence) getKey(idx int) (orderedKey, error) {
 	dec := ms.decoderSkipToIndex(idx)
-	err := dec.skipValue(ms.format()) // ref
+	err := dec.SkipValue(ms.format()) // ref
 
 	if err != nil {
 		return orderedKey{}, err
@@ -268,13 +269,13 @@ func (ms metaSequence) cumulativeNumberOfLeaves(idx int) (uint64, error) {
 	cum := uint64(0)
 	dec, _ := ms.decoderSkipToValues()
 	for i := 0; i <= idx; i++ {
-		err := dec.skipValue(ms.format()) // ref
+		err := dec.SkipValue(ms.format()) // ref
 
 		if err != nil {
 			return 0, err
 		}
 
-		err = dec.skipValue(ms.format()) // v
+		err = dec.SkipValue(ms.format()) // v
 
 		if err != nil {
 			return 0, err
@@ -336,7 +337,7 @@ func (ms metaSequence) getRefAt(dec *valueDecoder, idx int) (Ref, error) {
 
 func (ms metaSequence) getNumLeavesAt(idx int) (uint64, error) {
 	dec := ms.decoderSkipToIndex(idx)
-	err := dec.skipValue(ms.format())
+	err := dec.SkipValue(ms.format())
 
 	if err != nil {
 		return 0, err
@@ -358,6 +359,10 @@ func (ms metaSequence) getItem(idx int) (sequenceItem, error) {
 }
 
 func (ms metaSequence) valuesSlice(from, to uint64) ([]Value, error) {
+	panic("meta sequence")
+}
+
+func (seq metaSequence) kvTuples(from, to uint64, dest []Tuple) ([]Tuple, error) {
 	panic("meta sequence")
 }
 
@@ -411,6 +416,11 @@ func (ms metaSequence) isLeaf() bool {
 
 // metaSequence interface
 func (ms metaSequence) getChildSequence(ctx context.Context, idx int) (sequence, error) {
+	span, ctx := tracing.StartSpan(ctx, "metaSequence.getChildSequence")
+	defer func() {
+		span.Finish()
+	}()
+
 	item, err := ms.getItem(idx)
 
 	if err != nil {
@@ -428,6 +438,12 @@ func (ms metaSequence) getChildSequence(ctx context.Context, idx int) (sequence,
 // Returns the sequences pointed to by all items[i], s.t. start <= i < end, and returns the
 // concatentation as one long composite sequence
 func (ms metaSequence) getCompositeChildSequence(ctx context.Context, start uint64, length uint64) (sequence, error) {
+	span, ctx := tracing.StartSpan(ctx, "metaSequence.getChildSequence")
+	span.LogKV("level", ms.treeLevel(), "length", length)
+	defer func() {
+		span.Finish()
+	}()
+
 	level := ms.treeLevel()
 	d.PanicIfFalse(level > 0)
 	if length == 0 {
@@ -470,6 +486,7 @@ func (ms metaSequence) getCompositeChildSequence(ctx context.Context, start uint
 		return newListLeafSequence(ms.vrw, valueItems...)
 	case MapKind:
 		var valueItems []mapEntry
+
 		for _, seq := range output {
 			entries, err := seq.(mapLeafSequence).entries()
 
@@ -630,6 +647,10 @@ func (es emptySequence) Less(nbf *NomsBinFormat, other LesserValuable) (bool, er
 }
 
 func (es emptySequence) valuesSlice(from, to uint64) ([]Value, error) {
+	panic("empty sequence")
+}
+
+func (es emptySequence) kvTuples(from, to uint64, dest []Tuple) ([]Tuple, error) {
 	panic("empty sequence")
 }
 

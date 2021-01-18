@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,9 +18,11 @@ import (
 	"context"
 	"io"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/go-mysql-server/sql"
+
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 // InRangeCheck is a call made as the reader reads through values to check that the next value
@@ -110,6 +112,22 @@ func (nrr *NomsRangeReader) GetSchema() schema.Schema {
 // IsBadRow(err) will be return true. This is a potentially non-fatal error and callers can decide if they want to
 // continue on a bad row, or fail.
 func (nrr *NomsRangeReader) ReadRow(ctx context.Context) (row.Row, error) {
+	k, v, err := nrr.ReadKV(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return row.FromNoms(nrr.sch, k.(types.Tuple), v.(types.Tuple))
+}
+
+func (nrr *NomsRangeReader) ReadKey(ctx context.Context) (types.Value, error) {
+	k, _, err := nrr.ReadKV(ctx)
+
+	return k, err
+}
+
+func (nrr *NomsRangeReader) ReadKV(ctx context.Context) (types.Value, types.Value, error) {
 	var err error
 	for nrr.itr != nil || nrr.idx < len(nrr.ranges) {
 		var k types.Value
@@ -125,7 +143,7 @@ func (nrr *NomsRangeReader) ReadRow(ctx context.Context) (row.Row, error) {
 			}
 
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 
 			nrr.currCheck = r.Check
@@ -140,7 +158,7 @@ func (nrr *NomsRangeReader) ReadRow(ctx context.Context) (row.Row, error) {
 		}
 
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		var inRange bool
@@ -148,7 +166,7 @@ func (nrr *NomsRangeReader) ReadRow(ctx context.Context) (row.Row, error) {
 			inRange, err = nrr.currCheck(k.(types.Tuple))
 
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 
 			if !inRange {
@@ -156,7 +174,7 @@ func (nrr *NomsRangeReader) ReadRow(ctx context.Context) (row.Row, error) {
 				nrr.currCheck = nil
 				continue
 			} else {
-				return row.FromNoms(nrr.sch, k.(types.Tuple), v.(types.Tuple))
+				return k, v, nil
 			}
 		} else {
 			nrr.itr = nil
@@ -164,7 +182,7 @@ func (nrr *NomsRangeReader) ReadRow(ctx context.Context) (row.Row, error) {
 		}
 	}
 
-	return nil, io.EOF
+	return nil, nil, io.EOF
 }
 
 // VerifySchema checks that the incoming schema matches the schema from the existing table
@@ -175,4 +193,41 @@ func (nrr *NomsRangeReader) VerifySchema(outSch schema.Schema) (bool, error) {
 // Close should release resources being held
 func (nrr *NomsRangeReader) Close(ctx context.Context) error {
 	return nil
+}
+
+// SqlRowFromTuples constructs a go-mysql-server/sql.Row from Noms tuples.
+func SqlRowFromTuples(sch schema.Schema, key, val types.Tuple) (sql.Row, error) {
+	allCols := sch.GetAllCols()
+	colVals := make(sql.Row, allCols.Size())
+
+	keySl, err := key.AsSlice()
+	if err != nil {
+		return nil, err
+	}
+	valSl, err := val.AsSlice()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, sl := range []types.TupleValueSlice{keySl, valSl} {
+		var convErr error
+		err := row.IterPkTuple(sl, func(tag uint64, val types.Value) (stop bool, err error) {
+			if idx, ok := allCols.TagToIdx[tag]; ok {
+				col := allCols.GetByIndex(idx)
+				colVals[idx], convErr = col.TypeInfo.ConvertNomsValueToValue(val)
+
+				if convErr != nil {
+					return false, err
+				}
+			}
+
+			return false, nil
+		})
+
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return sql.NewRow(colVals...), nil
 }

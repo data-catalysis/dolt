@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os: [ ubuntu-latest ]
+        os: [ ubuntu-18.04 ]
     steps:
       - name: Setup Go 1.x
         uses: actions/setup-go@v2
@@ -25,11 +25,11 @@ jobs:
       - name: Create CI Bin
         run: |
           mkdir -p ./.ci_bin
-          echo "::add-path::$(pwd)/.ci_bin"
+          echo "$(pwd)/.ci_bin" >> $GITHUB_PATH
       - name: Install Bats
         run: |
           npm i bats
-          echo "::add-path::$(pwd)/node_modules/.bin"
+          echo "$(pwd)/node_modules/.bin" >> $GITHUB_PATH
         working-directory: ./.ci_bin
       - name: Install Dolt
         working-directory: ./go
@@ -42,3 +42,10 @@ jobs:
       - name: Test all
         run: ./runner.sh
         working-directory: ./bats/compatibility
+      - name: Discord Notify
+        if: always()
+        uses: dolthub/ga-discord-notify@master
+        with:
+          job-status: ${{ job.status }}
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK }}
+          notify-on-success: false

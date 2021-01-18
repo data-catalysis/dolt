@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,13 +15,14 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 func TestBoolConvertNomsValueToValue(t *testing.T) {
@@ -96,7 +97,8 @@ func TestBoolConvertValueToNomsValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, BoolType.String(), test.input), func(t *testing.T) {
-			output, err := BoolType.ConvertValueToNomsValue(test.input)
+			vrw := types.NewMemoryValueStore()
+			output, err := BoolType.ConvertValueToNomsValue(context.Background(), vrw, test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)
@@ -168,7 +170,7 @@ func TestBoolParseValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, BoolType.String(), test.input), func(t *testing.T) {
-			output, err := BoolType.ParseValue(&test.input)
+			output, err := BoolType.ParseValue(context.Background(), nil, &test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)

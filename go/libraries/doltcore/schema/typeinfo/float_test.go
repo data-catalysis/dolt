@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strconv"
@@ -24,7 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 func TestFloatConvertNomsValueToValue(t *testing.T) {
@@ -57,12 +58,6 @@ func TestFloatConvertNomsValueToValue(t *testing.T) {
 			math.MaxFloat64,
 			float64(math.MaxFloat64),
 			false,
-		},
-		{
-			Float32Type,
-			math.MaxFloat64,
-			0,
-			true,
 		},
 	}
 
@@ -120,7 +115,8 @@ func TestFloatConvertValueToNomsValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, test.typ.String(), test.input), func(t *testing.T) {
-			output, err := test.typ.ConvertValueToNomsValue(test.input)
+			vrw := types.NewMemoryValueStore()
+			output, err := test.typ.ConvertValueToNomsValue(context.Background(), vrw, test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)
@@ -161,12 +157,6 @@ func TestFloatFormatValue(t *testing.T) {
 			math.MaxFloat64,
 			strconv.FormatFloat(math.MaxFloat64, 'f', -1, 64),
 			false,
-		},
-		{
-			Float32Type,
-			math.MaxFloat64,
-			"",
-			true,
 		},
 	}
 
@@ -218,7 +208,8 @@ func TestFloatParseValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, test.typ.String(), test.input), func(t *testing.T) {
-			output, err := test.typ.ParseValue(&test.input)
+			vrw := types.NewMemoryValueStore()
+			output, err := test.typ.ParseValue(context.Background(), vrw, &test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)

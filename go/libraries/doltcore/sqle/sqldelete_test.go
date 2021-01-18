@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,16 +18,17 @@ import (
 	"context"
 	"testing"
 
-	sql "github.com/liquidata-inc/go-mysql-server/sql"
+	sql "github.com/dolthub/go-mysql-server/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/dtestutils"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	. "github.com/liquidata-inc/dolt/go/libraries/doltcore/sql/sqltestutil"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	. "github.com/dolthub/dolt/go/libraries/doltcore/sql/sqltestutil"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dtables"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 // Set to the name of a single test to run just that test, useful for debugging
@@ -201,12 +202,12 @@ var systemTableDeleteTests = []DeleteTest{
 	{
 		Name: "delete dolt_query_catalog",
 		AdditionalSetup: CreateTableFn(doltdb.DoltQueryCatalogTableName,
-			DoltQueryCatalogSchema,
+			dtables.DoltQueryCatalogSchema,
 			NewRow(types.String("abc123"), types.Uint(1), types.String("example"), types.String("select 2+2 from dual"), types.String("description"))),
 		DeleteQuery:    "delete from dolt_query_catalog",
 		SelectQuery:    "select * from dolt_query_catalog",
-		ExpectedRows:   ToSqlRows(DoltQueryCatalogSchema),
-		ExpectedSchema: CompressSchema(DoltQueryCatalogSchema),
+		ExpectedRows:   ToSqlRows(dtables.DoltQueryCatalogSchema),
+		ExpectedSchema: CompressSchema(dtables.DoltQueryCatalogSchema),
 	},
 	{
 		Name: "delete dolt_schemas",
@@ -215,7 +216,7 @@ var systemTableDeleteTests = []DeleteTest{
 			NewRowWithPks([]types.Value{types.String("view"), types.String("name")}, types.String("select 2+2 from dual"))),
 		DeleteQuery:    "delete from dolt_schemas",
 		SelectQuery:    "select * from dolt_schemas",
-		ExpectedRows:   ToSqlRows(DoltQueryCatalogSchema),
+		ExpectedRows:   ToSqlRows(dtables.DoltQueryCatalogSchema),
 		ExpectedSchema: schemasTableDoltSchema(),
 	},
 }

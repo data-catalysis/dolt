@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,8 +24,8 @@ package types
 import (
 	"context"
 
-	"github.com/liquidata-inc/dolt/go/store/d"
-	"github.com/liquidata-inc/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/d"
+	"github.com/dolthub/dolt/go/store/hash"
 )
 
 type sequenceItem interface{}
@@ -53,6 +53,7 @@ type sequence interface {
 	typeOf() (*Type, error)
 	valueReadWriter() ValueReadWriter
 	valuesSlice(from, to uint64) ([]Value, error)
+	kvTuples(from, to uint64, dest []Tuple) ([]Tuple, error)
 	WalkRefs(nbf *NomsBinFormat, cb RefCallback) error
 	writeTo(nomsWriter, *NomsBinFormat) error
 }

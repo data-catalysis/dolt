@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,24 +24,24 @@ import (
 
 	"github.com/fatih/color"
 
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/cli"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/commands"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/errhand"
-	eventsapi "github.com/liquidata-inc/dolt/go/gen/proto/dolt/services/eventsapi/v1alpha1"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env/actions"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/rowconv"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema/encoding"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/sqle/sqlfmt"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/untyped/csv"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/argparser"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/filesys"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/funcitr"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/set"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/dolthub/dolt/go/cmd/dolt/commands"
+	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
+	eventsapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/eventsapi/v1alpha1"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env/actions"
+	"github.com/dolthub/dolt/go/libraries/doltcore/rowconv"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema/encoding"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/untyped/csv"
+	"github.com/dolthub/dolt/go/libraries/utils/argparser"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/dolthub/dolt/go/libraries/utils/funcitr"
+	"github.com/dolthub/dolt/go/libraries/utils/set"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 const (
@@ -286,7 +286,13 @@ func importSchema(ctx context.Context, dEnv *env.DoltEnv, apr *argparser.ArgPars
 
 	tblName := impArgs.tableName
 	// inferred schemas have no foreign keys
-	cli.Println(sqlfmt.CreateTableStmtWithTags(tblName, sch, nil, nil))
+	sqlDb := sqle.NewSingleTableDatabase(tblName, sch, nil, nil)
+	sqlCtx, engine, _ := sqle.PrepareCreateTableStmt(ctx, sqlDb)
+	stmt, err := sqle.GetCreateTableStmt(sqlCtx, engine, tblName)
+	if err != nil {
+		return errhand.VerboseErrorFromError(err)
+	}
+	cli.Println(stmt)
 
 	if !apr.Contains(dryRunFlag) {
 		tbl, tblExists, err := root.GetTable(ctx, tblName)
@@ -297,22 +303,21 @@ func importSchema(ctx context.Context, dEnv *env.DoltEnv, apr *argparser.ArgPars
 			return errhand.BuildDError("error: failed to encode schema.").AddCause(err).Build()
 		}
 
-		m, err := types.NewMap(ctx, root.VRW())
+		empty, err := types.NewMap(ctx, root.VRW())
 
 		if err != nil {
 			return errhand.BuildDError("error: failed to create table.").AddCause(err).Build()
 		}
 
-		var indexData *types.Map
+		indexData := empty
 		if tblExists {
-			existingIndexData, err := tbl.GetIndexData(ctx)
+			indexData, err = tbl.GetIndexData(ctx)
 			if err != nil {
 				return errhand.BuildDError("error: failed to create table.").AddCause(err).Build()
 			}
-			indexData = &existingIndexData
 		}
 
-		tbl, err = doltdb.NewTable(ctx, root.VRW(), schVal, m, indexData)
+		tbl, err = doltdb.NewTable(ctx, root.VRW(), schVal, empty, indexData)
 
 		if err != nil {
 			return errhand.BuildDError("error: failed to create table.").AddCause(err).Build()
@@ -412,8 +417,11 @@ func CombineColCollections(ctx context.Context, root *doltdb.RootValue, inferred
 	if err != nil {
 		return nil, errhand.BuildDError("failed to generate new schema").AddCause(err).Build()
 	}
-
-	return schema.SchemaFromCols(combined), nil
+	sch, err := schema.SchemaFromCols(combined)
+	if err != nil {
+		return nil, errhand.BuildDError("failed to get schema from cols").AddCause(err).Build()
+	}
+	return sch, nil
 }
 
 func columnsForSchemaCreate(inferredCols *schema.ColCollection, pkNames []string) (newCols *schema.ColCollection) {

@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,8 +19,10 @@ import (
 	"io"
 	"time"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table"
+	"github.com/dolthub/go-mysql-server/sql"
+
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table"
 )
 
 // SourceFunc is a function that will return a new row for each successive call until all it's rows are exhausted, at
@@ -33,7 +35,7 @@ func ProcFuncForSourceFunc(sourceFunc SourceFunc) InFunc {
 	return func(p *Pipeline, ch chan<- RowWithProps, badRowChan chan<- *TransformRowFailure, noMoreChan <-chan struct{}) {
 		defer close(ch)
 
-		for {
+		for !p.IsStopping() {
 			select {
 			case <-noMoreChan:
 				return
@@ -59,12 +61,12 @@ func ProcFuncForSourceFunc(sourceFunc SourceFunc) InFunc {
 				panic("Readers should not be returning nil without error.  io.EOF should be used when done.")
 			}
 
-			if p.IsStopping() {
-				return
-			}
-
 			if r != nil {
-				ch <- RowWithProps{r, props}
+				select {
+				case ch <- RowWithProps{r, props}:
+				case <-p.stopChan:
+					return
+				}
 			}
 		}
 	}
@@ -98,7 +100,7 @@ func ProcFuncForSinkFunc(sinkFunc SinkFunc) OutFunc {
 					err := sinkFunc(r.Row, r.Props)
 
 					if err != nil {
-						if table.IsBadRow(err) {
+						if table.IsBadRow(err) || sql.ErrPrimaryKeyViolation.Is(err) {
 							badRowChan <- &TransformRowFailure{r.Row, "writer", err.Error()}
 						} else {
 							p.StopWithErr(err)
@@ -142,27 +144,41 @@ func InFuncForChannel(rowChan <-chan row.Row) InFunc {
 	return func(p *Pipeline, ch chan<- RowWithProps, badRowChan chan<- *TransformRowFailure, noMoreChan <-chan struct{}) {
 		defer close(ch)
 
-		for {
-			select {
-			case <-noMoreChan:
-				return
-			default:
-				break
-			}
-
+		more := true
+		for more {
 			if p.IsStopping() {
 				return
 			}
 
 			select {
+			case <-noMoreChan:
+				more = false
 			case r, ok := <-rowChan:
 				if ok {
 					ch <- RowWithProps{Row: r, Props: NoProps}
 				} else {
 					return
 				}
-			case <-time.After(100 * time.Millisecond):
-				// wake up and check stop condition
+			}
+		}
+
+		// no more data will be written to rowChan, but still need to make sure what was written is drained.
+		if !more {
+			for {
+				if p.IsStopping() {
+					return
+				}
+
+				select {
+				case r, ok := <-rowChan:
+					if ok {
+						ch <- RowWithProps{Row: r, Props: NoProps}
+					} else {
+						return
+					}
+				default:
+					return
+				}
 			}
 		}
 	}

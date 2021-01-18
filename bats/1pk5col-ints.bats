@@ -591,23 +591,23 @@ DELIM
     [ "$status" -eq 0 ]
     [[ "$output" =~ "test @ working" ]] || false
     [[ "$output" =~ "CREATE TABLE \`test\`" ]] || false
-    [[ "$output" =~ "\`pk\` BIGINT NOT NULL COMMENT 'tag:0'" ]] || false
-    [[ "$output" =~ "\`c1\` BIGINT COMMENT 'tag:1'" ]] || false
-    [[ "$output" =~ "\`c2\` BIGINT COMMENT 'tag:2'" ]] || false
-    [[ "$output" =~ "\`c3\` BIGINT COMMENT 'tag:3'" ]] || false
-    [[ "$output" =~ "\`c4\` BIGINT COMMENT 'tag:4'" ]] || false
-    [[ "$output" =~ "\`c5\` BIGINT COMMENT 'tag:5'" ]] || false
+    [[ "$output" =~ "\`pk\` bigint NOT NULL" ]] || false
+    [[ "$output" =~ "\`c1\` bigint" ]] || false
+    [[ "$output" =~ "\`c2\` bigint" ]] || false
+    [[ "$output" =~ "\`c3\` bigint" ]] || false
+    [[ "$output" =~ "\`c4\` bigint" ]] || false
+    [[ "$output" =~ "\`c5\` bigint" ]] || false
     [[ "$output" =~ "PRIMARY KEY (\`pk\`)" ]] || false
     run dolt schema show test
     [ "$status" -eq 0 ]
     [[ "$output" =~ "test @ working" ]] || false
     [[ "$output" =~ "CREATE TABLE \`test\`" ]] || false
-    [[ "$output" =~ "\`pk\` BIGINT NOT NULL COMMENT 'tag:0'" ]] || false
-    [[ "$output" =~ "\`c1\` BIGINT COMMENT 'tag:1'" ]] || false
-    [[ "$output" =~ "\`c2\` BIGINT COMMENT 'tag:2'" ]] || false
-    [[ "$output" =~ "\`c3\` BIGINT COMMENT 'tag:3'" ]] || false
-    [[ "$output" =~ "\`c4\` BIGINT COMMENT 'tag:4'" ]] || false
-    [[ "$output" =~ "\`c5\` BIGINT COMMENT 'tag:5'" ]] || false
+    [[ "$output" =~ "\`pk\` bigint NOT NULL" ]] || false
+    [[ "$output" =~ "\`c1\` bigint" ]] || false
+    [[ "$output" =~ "\`c2\` bigint" ]] || false
+    [[ "$output" =~ "\`c3\` bigint" ]] || false
+    [[ "$output" =~ "\`c4\` bigint" ]] || false
+    [[ "$output" =~ "\`c5\` bigint" ]] || false
     [[ "$output" =~ "PRIMARY KEY (\`pk\`)" ]] || false
 }
 
@@ -638,11 +638,11 @@ DELIM
     dolt sql -q "insert into test (pk) values (2)"
     run dolt sql -q "select * from test"
     [ "$status" -eq 0 ]
-    [[ "$output" =~ "<NULL>" ]] || false
+    [[ "$output" =~ "NULL" ]] || false
     doltsqloutput=$output
     run dolt sql -q "select * from test"
     [ "$status" -eq 0 ]
-    [[ "$output" =~ "<NULL>" ]] || false
+    [[ "$output" =~ "NULL" ]] || false
     [ "$output" = "$doltsqloutput" ]
     # Make sure we don't get a table with no spaces because that bug was
     # generated when making changes to NULL printing
@@ -656,7 +656,7 @@ DELIM
     run dolt sql -q "select * from test where c1 is null"
     [ "$status" -eq 0 ]
     [ "${#lines[@]}" -eq 6 ]
-    [[ "$output" =~ "<NULL>" ]] || false
+    [[ "$output" =~ "NULL" ]] || false
 }
 
 @test "display correct merge stats" {

@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 
 package pantoerr
 
-import "github.com/liquidata-inc/dolt/go/store/d"
+import "github.com/dolthub/dolt/go/store/d"
 
 // RecoverPanic is used to convert panics to errors.  The attic-labs noms codebase loves to panic.  This is not
 // idiomatic for Go code. RecoverPanic wraps the cause of the panic retrieved from the recover call, and implements

@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,10 +15,11 @@
 package sqle
 
 import (
-	"github.com/liquidata-inc/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/errhand"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/editor"
 )
 
 // sqlTableEditor is a wrapper for *doltdb.SessionedTableEditor that complies with the SQL interface.
@@ -33,7 +34,8 @@ import (
 // unbroken chain of INSERT statements, where we have taken pains to batch writes to speed things up.
 type sqlTableEditor struct {
 	t           *WritableDoltTable
-	tableEditor *doltdb.SessionedTableEditor
+	tableEditor editor.TableEditor
+	sess        *editor.TableEditSession
 }
 
 var _ sql.RowReplacer = (*sqlTableEditor)(nil)
@@ -42,18 +44,20 @@ var _ sql.RowInserter = (*sqlTableEditor)(nil)
 var _ sql.RowDeleter = (*sqlTableEditor)(nil)
 
 func newSqlTableEditor(ctx *sql.Context, t *WritableDoltTable) (*sqlTableEditor, error) {
-	tableEditor, err := t.db.TableEditSession(ctx).GetTableEditor(ctx, t.name, t.sch)
+	sess := t.db.TableEditSession(ctx)
+	tableEditor, err := sess.GetTableEditor(ctx, t.name, t.sch)
 	if err != nil {
 		return nil, err
 	}
 	return &sqlTableEditor{
 		t:           t,
 		tableEditor: tableEditor,
+		sess:        sess,
 	}, nil
 }
 
 func (te *sqlTableEditor) Insert(ctx *sql.Context, sqlRow sql.Row) error {
-	dRow, err := SqlRowToDoltRow(te.t.table.Format(), sqlRow, te.t.sch)
+	dRow, err := sqlutil.SqlRowToDoltRow(ctx, te.t.table.ValueReadWriter(), sqlRow, te.t.sch)
 	if err != nil {
 		return err
 	}
@@ -62,7 +66,7 @@ func (te *sqlTableEditor) Insert(ctx *sql.Context, sqlRow sql.Row) error {
 }
 
 func (te *sqlTableEditor) Delete(ctx *sql.Context, sqlRow sql.Row) error {
-	dRow, err := SqlRowToDoltRow(te.t.table.Format(), sqlRow, te.t.sch)
+	dRow, err := sqlutil.SqlRowToDoltRow(ctx, te.t.table.ValueReadWriter(), sqlRow, te.t.sch)
 	if err != nil {
 		return err
 	}
@@ -71,16 +75,32 @@ func (te *sqlTableEditor) Delete(ctx *sql.Context, sqlRow sql.Row) error {
 }
 
 func (te *sqlTableEditor) Update(ctx *sql.Context, oldRow sql.Row, newRow sql.Row) error {
-	dOldRow, err := SqlRowToDoltRow(te.t.table.Format(), oldRow, te.t.sch)
+	dOldRow, err := sqlutil.SqlRowToDoltRow(ctx, te.t.table.ValueReadWriter(), oldRow, te.t.sch)
 	if err != nil {
 		return err
 	}
-	dNewRow, err := SqlRowToDoltRow(te.t.table.Format(), newRow, te.t.sch)
+	dNewRow, err := sqlutil.SqlRowToDoltRow(ctx, te.t.table.ValueReadWriter(), newRow, te.t.sch)
 	if err != nil {
 		return err
 	}
 
 	return te.tableEditor.UpdateRow(ctx, dOldRow, dNewRow)
+}
+
+func (te *sqlTableEditor) GetAutoIncrementValue() (interface{}, error) {
+	val := te.tableEditor.GetAutoIncrementValue()
+	return te.t.DoltTable.autoIncCol.TypeInfo.ConvertNomsValueToValue(val)
+}
+
+func (te *sqlTableEditor) SetAutoIncrementValue(ctx *sql.Context, val interface{}) error {
+	nomsVal, err := te.t.DoltTable.autoIncCol.TypeInfo.ConvertValueToNomsValue(ctx, te.t.table.ValueReadWriter(), val)
+	if err != nil {
+		return err
+	}
+	if err = te.tableEditor.SetAutoIncrementValue(nomsVal); err != nil {
+		return err
+	}
+	return te.flush(ctx)
 }
 
 // Close implements Closer
@@ -93,10 +113,11 @@ func (te *sqlTableEditor) Close(ctx *sql.Context) error {
 }
 
 func (te *sqlTableEditor) flush(ctx *sql.Context) error {
-	newRoot, err := te.tableEditor.Flush(ctx)
+	newRoot, err := te.sess.Flush(ctx)
 	if err != nil {
-		return errhand.BuildDError("failed to write table back to database").AddCause(err).Build()
+		return err
 	}
+
 	newTable, ok, err := newRoot.GetTable(ctx, te.t.name)
 	if err != nil {
 		return errhand.BuildDError("failed to load updated table").AddCause(err).Build()

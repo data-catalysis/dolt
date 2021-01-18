@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -35,18 +35,18 @@ import (
 	flag "github.com/juju/gnuflag"
 	"github.com/mgutz/ansi"
 
-	"github.com/liquidata-inc/dolt/go/store/cmd/noms/util"
-	"github.com/liquidata-inc/dolt/go/store/config"
-	"github.com/liquidata-inc/dolt/go/store/d"
-	"github.com/liquidata-inc/dolt/go/store/datas"
-	"github.com/liquidata-inc/dolt/go/store/diff"
-	"github.com/liquidata-inc/dolt/go/store/spec"
-	"github.com/liquidata-inc/dolt/go/store/types"
-	"github.com/liquidata-inc/dolt/go/store/util/datetime"
-	"github.com/liquidata-inc/dolt/go/store/util/functions"
-	"github.com/liquidata-inc/dolt/go/store/util/outputpager"
-	"github.com/liquidata-inc/dolt/go/store/util/verbose"
-	"github.com/liquidata-inc/dolt/go/store/util/writers"
+	"github.com/dolthub/dolt/go/store/cmd/noms/util"
+	"github.com/dolthub/dolt/go/store/config"
+	"github.com/dolthub/dolt/go/store/d"
+	"github.com/dolthub/dolt/go/store/datas"
+	"github.com/dolthub/dolt/go/store/diff"
+	"github.com/dolthub/dolt/go/store/spec"
+	"github.com/dolthub/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/util/datetime"
+	"github.com/dolthub/dolt/go/store/util/functions"
+	"github.com/dolthub/dolt/go/store/util/outputpager"
+	"github.com/dolthub/dolt/go/store/util/verbose"
+	"github.com/dolthub/dolt/go/store/util/writers"
 )
 
 var (
@@ -172,7 +172,7 @@ func runLog(ctx context.Context, args []string) int {
 func printCommit(ctx context.Context, node LogNode, path types.Path, w io.Writer, db datas.Database, tz *time.Location) (err error) {
 	maxMetaFieldNameLength := func(commit types.Struct) int {
 		maxLen := 0
-		if m, ok, err := commit.MaybeGet(datas.MetaField); err != nil {
+		if m, ok, err := commit.MaybeGet(datas.CommitMetaField); err != nil {
 			panic(err)
 		} else if ok {
 			meta := m.(types.Struct)
@@ -293,7 +293,7 @@ func genGraph(node LogNode, lineno int) string {
 }
 
 func writeMetaLines(ctx context.Context, node LogNode, maxLines, lineno, maxLabelLen int, w io.Writer, tz *time.Location) (int, error) {
-	if m, ok, err := node.commit.MaybeGet(datas.MetaField); err != nil {
+	if m, ok, err := node.commit.MaybeGet(datas.CommitMetaField); err != nil {
 		panic(err)
 	} else if ok {
 		genPrefix := func(w *writers.PrefixWriter) []byte {
@@ -403,18 +403,19 @@ func writeDiffLines(ctx context.Context, node LogNode, path types.Path, db datas
 	d.PanicIfError(err)
 
 	var old, neu types.Value
-	functions.All(
-		func() {
+	err = functions.All(
+		func() error {
 			var err error
 			old, err = path.Resolve(ctx, parentCommit, db)
-			d.PanicIfError(err)
+			return err
 		},
-		func() {
+		func() error {
 			var err error
 			neu, err = path.Resolve(ctx, node.commit, db)
-			d.PanicIfError(err)
+			return err
 		},
 	)
+	d.PanicIfError(err)
 
 	// TODO: It would be better to treat this as an add or remove, but that requires generalization
 	// of some of the code in PrintDiff() because it cannot tolerate nil parameters.

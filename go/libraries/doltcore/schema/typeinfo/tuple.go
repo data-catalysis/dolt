@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,11 +15,12 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 type tupleType struct{}
@@ -37,8 +38,19 @@ func (ti *tupleType) ConvertNomsValueToValue(v types.Value) (interface{}, error)
 	return v, nil
 }
 
+// ReadFrom reads a go value from a noms types.CodecReader directly
+func (ti *tupleType) ReadFrom(_ *types.NomsBinFormat, reader types.CodecReader) (interface{}, error) {
+	k := reader.ReadKind()
+	switch k {
+	case types.NullKind:
+		return nil, nil
+	}
+
+	return nil, fmt.Errorf(`"%v" cannot convert NomsKind "%v" to a value`, ti.String(), k)
+}
+
 // ConvertValueToNomsValue implements TypeInfo interface.
-func (ti *tupleType) ConvertValueToNomsValue(v interface{}) (types.Value, error) {
+func (ti *tupleType) ConvertValueToNomsValue(ctx context.Context, vrw types.ValueReadWriter, v interface{}) (types.Value, error) {
 	if tVal, ok := v.(types.Value); ok {
 		return tVal, nil
 	}
@@ -87,8 +99,13 @@ func (ti *tupleType) NomsKind() types.NomsKind {
 }
 
 // ParseValue implements TypeInfo interface.
-func (ti *tupleType) ParseValue(str *string) (types.Value, error) {
+func (ti *tupleType) ParseValue(ctx context.Context, vrw types.ValueReadWriter, str *string) (types.Value, error) {
 	return nil, fmt.Errorf(`"%v" cannot parse strings`, ti.String())
+}
+
+// Promote implements TypeInfo interface.
+func (ti *tupleType) Promote() TypeInfo {
+	return ti
 }
 
 // String implements TypeInfo interface.

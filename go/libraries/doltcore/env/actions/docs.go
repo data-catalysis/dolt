@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,9 +17,9 @@ package actions
 import (
 	"context"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/diff"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/diff"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
 )
 
 // SaveTrackedDocsFromWorking saves docs from the working root to the filesystem, and doesn't modify untracked docs.
@@ -59,7 +59,7 @@ func SaveDocsFromRoot(ctx context.Context, root *doltdb.RootValue, dEnv *env.Dol
 
 // SaveTrackedDocs writes the docs from the targetRoot to the filesystem. The working root is used to identify untracked docs, which are left unchanged.
 func SaveTrackedDocs(ctx context.Context, dEnv *env.DoltEnv, workRoot, targetRoot *doltdb.RootValue, localDocs env.Docs) error {
-	docDiffs, err := diff.NewDocDiffs(ctx, dEnv, workRoot, nil, localDocs)
+	docDiffs, err := diff.NewDocDiffs(ctx, workRoot, nil, localDocs)
 	if err != nil {
 		return err
 	}
@@ -143,13 +143,13 @@ func getUpdatedWorkingAndStagedWithDocs(ctx context.Context, dEnv *env.DoltEnv, 
 
 // GetUnstagedDocs retrieves the unstaged docs (docs from the filesystem).
 func GetUnstagedDocs(ctx context.Context, dEnv *env.DoltEnv) (env.Docs, error) {
-	_, unstagedDocDiffs, err := diff.GetDocDiffs(ctx, dEnv)
+	_, unstagedDocDiffs, err := diff.GetDocDiffs(ctx, dEnv.DoltDB, dEnv.RepoStateReader(), dEnv.DocsReadWriter())
 	if err != nil {
 		return nil, err
 	}
 	unstagedDocs := env.Docs{}
 	for _, docName := range unstagedDocDiffs.Docs {
-		docDetail, err := dEnv.GetOneDocDetail(docName)
+		docDetail, err := dEnv.GetDocDetail(docName)
 		if err != nil {
 			return nil, err
 		}

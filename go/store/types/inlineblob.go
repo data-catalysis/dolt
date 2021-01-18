@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/liquidata-inc/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/hash"
 )
 
 type InlineBlob []byte
@@ -92,9 +92,8 @@ func (v InlineBlob) writeTo(w nomsWriter, nbf *NomsBinFormat) error {
 }
 
 func (v InlineBlob) readFrom(nbf *NomsBinFormat, b *binaryNomsReader) (Value, error) {
-	size := uint32(b.readUint16())
-	ib := b.readBytes(size)
-	return InlineBlob(ib), nil
+	bytes := b.ReadInlineBlob()
+	return InlineBlob(bytes), nil
 }
 
 func (v InlineBlob) skip(nbf *NomsBinFormat, b *binaryNomsReader) {

@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,9 +22,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema/typeinfo"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 const (
@@ -399,7 +399,7 @@ func TestReduceToIndex(t *testing.T) {
 		require.NoError(t, err)
 		expectedIndex, err := New(types.Format_7_18, index.Schema(), tvCombo.expectedIndex)
 		require.NoError(t, err)
-		indexRow, err := row.ReduceToIndex(index)
+		indexRow, err := ReduceToIndex(index, row)
 		assert.NoError(t, err)
 		assert.True(t, AreEqual(expectedIndex, indexRow, index.Schema()))
 	}

@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/liquidata-inc/dolt/go/store/blobstore"
+	"github.com/dolthub/dolt/go/store/blobstore"
+	"github.com/dolthub/dolt/go/store/chunks"
 )
 
 type blobstorePersister struct {
@@ -148,4 +149,8 @@ func newBSChunkSource(ctx context.Context, bs blobstore.Blobstore, name addr, ch
 	}
 
 	return &chunkSourceAdapter{newTableReader(index, tra, s3BlockSize), name}, nil
+}
+
+func (bsp *blobstorePersister) PruneTableFiles(ctx context.Context, contents manifestContents) error {
+	return chunks.ErrUnsupportedOperation
 }

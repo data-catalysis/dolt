@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,19 +19,20 @@ import (
 	"io"
 	"testing"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/dtestutils"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/envtestutils"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema/typeinfo"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/sql/sqltestutil"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/envtestutils"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sql/sqltestutil"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 // SetupFunc can be run to perform additional setup work before a test case
@@ -41,7 +42,7 @@ type SetupFn func(t *testing.T, dEnv *env.DoltEnv)
 // the targetSchema given is used to prepare all rows.
 func executeSelect(ctx context.Context, dEnv *env.DoltEnv, root *doltdb.RootValue, query string) ([]sql.Row, sql.Schema, error) {
 	var err error
-	db := NewDatabase("dolt", dEnv.DoltDB, dEnv.RepoState, dEnv.RepoStateWriter())
+	db := NewDatabase("dolt", dEnv.DbData())
 	engine, sqlCtx, err := NewTestEngine(ctx, db, root)
 	if err != nil {
 		return nil, nil, err
@@ -67,15 +68,29 @@ func executeSelect(ctx context.Context, dEnv *env.DoltEnv, root *doltdb.RootValu
 
 // Runs the query given and returns the error (if any).
 func executeModify(ctx context.Context, dEnv *env.DoltEnv, root *doltdb.RootValue, query string) (*doltdb.RootValue, error) {
-	db := NewDatabase("dolt", dEnv.DoltDB, dEnv.RepoState, dEnv.RepoStateWriter())
+	db := NewDatabase("dolt", dEnv.DbData())
 	engine, sqlCtx, err := NewTestEngine(ctx, db, root)
 
 	if err != nil {
 		return nil, err
 	}
 
-	_, _, err = engine.Query(sqlCtx, query)
+	_, iter, err := engine.Query(sqlCtx, query)
+	if err != nil {
+		return nil, err
+	}
 
+	for {
+		_, err := iter.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	err = iter.Close()
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +105,7 @@ func ToSqlRows(sch schema.Schema, rs ...row.Row) []sql.Row {
 	sqlRows := make([]sql.Row, len(rs))
 	compressedSch := CompressSchema(sch)
 	for i := range rs {
-		sqlRows[i], _ = doltRowToSqlRow(CompressRow(sch, rs[i]), compressedSch)
+		sqlRows[i], _ = sqlutil.DoltRowToSqlRow(CompressRow(sch, rs[i]), compressedSch)
 	}
 	return sqlRows
 }
@@ -113,11 +128,27 @@ func SubsetSchema(sch schema.Schema, colNames ...string) schema.Schema {
 }
 
 func schemaNewColumn(t *testing.T, name string, tag uint64, sqlType sql.Type, partOfPK bool, constraints ...schema.ColConstraint) schema.Column {
+	return schemaNewColumnWDefVal(t, name, tag, sqlType, partOfPK, "", constraints...)
+}
+
+func schemaNewColumnWDefVal(t *testing.T, name string, tag uint64, sqlType sql.Type, partOfPK bool, defaultVal string, constraints ...schema.ColConstraint) schema.Column {
 	typeInfo, err := typeinfo.FromSqlType(sqlType)
 	require.NoError(t, err)
-	col, err := schema.NewColumnWithTypeInfo(name, tag, typeInfo, partOfPK, constraints...)
+	col, err := schema.NewColumnWithTypeInfo(name, tag, typeInfo, partOfPK, defaultVal, false, "", constraints...)
 	require.NoError(t, err)
 	return col
+}
+
+func equalSchemas(t *testing.T, expectedSch schema.Schema, sch schema.Schema) {
+	require.NotNil(t, expectedSch)
+	require.NotNil(t, sch)
+	require.Equal(t, expectedSch.GetAllCols().Size(), sch.GetAllCols().Size())
+	cols := sch.GetAllCols().GetColumns()
+	for i, expectedCol := range expectedSch.GetAllCols().GetColumns() {
+		col := cols[i]
+		col.Tag = expectedCol.Tag
+		assert.Equal(t, expectedCol, col)
+	}
 }
 
 // TODO: this shouldn't be here
@@ -135,7 +166,7 @@ func CreateWorkingRootUpdate() map[string]envtestutils.TableUpdate {
 
 // Returns the dolt schema given as a sql.Schema, or panics.
 func mustSqlSchema(sch schema.Schema) sql.Schema {
-	sqlSchema, err := doltSchemaToSqlSchema("", sch)
+	sqlSchema, err := sqlutil.FromDoltSchema("", sch)
 	if err != nil {
 		panic(err)
 	}

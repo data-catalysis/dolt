@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,17 +27,18 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"sync"
 
 	flag "github.com/juju/gnuflag"
 
-	"github.com/liquidata-inc/dolt/go/store/cmd/noms/util"
-	"github.com/liquidata-inc/dolt/go/store/config"
-	"github.com/liquidata-inc/dolt/go/store/d"
-	"github.com/liquidata-inc/dolt/go/store/datas"
-	"github.com/liquidata-inc/dolt/go/store/merge"
-	"github.com/liquidata-inc/dolt/go/store/types"
-	"github.com/liquidata-inc/dolt/go/store/util/status"
-	"github.com/liquidata-inc/dolt/go/store/util/verbose"
+	"github.com/dolthub/dolt/go/store/cmd/noms/util"
+	"github.com/dolthub/dolt/go/store/config"
+	"github.com/dolthub/dolt/go/store/d"
+	"github.com/dolthub/dolt/go/store/datas"
+	"github.com/dolthub/dolt/go/store/merge"
+	"github.com/dolthub/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/util/status"
+	"github.com/dolthub/dolt/go/store/util/verbose"
 )
 
 var (
@@ -92,10 +93,10 @@ func runMerge(ctx context.Context, args []string) int {
 	}
 
 	policy := decidePolicy(resolver)
-	pc := newMergeProgressChan()
+	pc, closer := newMergeProgressChan()
 	merged, err := policy(ctx, left, right, ancestor, db, pc)
+	closer()
 	util.CheckErrorNoUsage(err)
-	close(pc)
 
 	leftHeadRef, ok, err := leftDS.MaybeHeadRef()
 	d.PanicIfError(err)
@@ -192,7 +193,7 @@ func getMergeCandidates(ctx context.Context, db datas.Database, leftDS, rightDS 
 }
 
 func getCommonAncestor(ctx context.Context, r1, r2 types.Ref, vr types.ValueReader) (a types.Struct, found bool) {
-	aRef, found, err := datas.FindCommonAncestor(ctx, r1, r2, vr)
+	aRef, found, err := datas.FindCommonAncestor(ctx, r1, r2, vr, vr)
 	d.PanicIfError(err)
 	if !found {
 		return
@@ -214,16 +215,19 @@ func getCommonAncestor(ctx context.Context, r1, r2 types.Ref, vr types.ValueRead
 	return v.(types.Struct), true
 }
 
-func newMergeProgressChan() chan struct{} {
+func newMergeProgressChan() (chan struct{}, func()) {
 	pc := make(chan struct{}, 128)
+	wg := new(sync.WaitGroup)
+	wg.Add(1)
 	go func() {
 		count := 0
 		for range pc {
 			count++
 			status.Printf("Applied %d changes...", count)
 		}
+		wg.Done()
 	}()
-	return pc
+	return pc, func() { close(pc); wg.Wait() }
 }
 
 func decidePolicy(policy string) merge.Policy {

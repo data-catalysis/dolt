@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,12 +28,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/liquidata-inc/dolt/go/store/atomicerr"
-	"github.com/liquidata-inc/dolt/go/store/chunks"
-	"github.com/liquidata-inc/dolt/go/store/d"
-	"github.com/liquidata-inc/dolt/go/store/hash"
-	"github.com/liquidata-inc/dolt/go/store/merge"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/chunks"
+	"github.com/dolthub/dolt/go/store/d"
+	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/merge"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 func TestLocalDatabase(t *testing.T) {
@@ -307,13 +306,11 @@ func (suite *DatabaseSuite) TestDatasetsMapType() {
 }
 
 func assertMapOfStringToRefOfCommit(ctx context.Context, proposed, datasets types.Map, vr types.ValueReader) {
-	ae := atomicerr.New()
-	stopChan := make(chan struct{})
-	defer close(stopChan)
+	var derr error
 	changes := make(chan types.ValueChanged)
 	go func() {
 		defer close(changes)
-		proposed.Diff(ctx, datasets, ae, changes, stopChan)
+		derr = proposed.Diff(ctx, datasets, changes)
 	}()
 	for change := range changes {
 		switch change.ChangeType {
@@ -334,6 +331,7 @@ func assertMapOfStringToRefOfCommit(ctx context.Context, proposed, datasets type
 			}
 		}
 	}
+	d.PanicIfError(derr)
 }
 
 func newOpts(vrw types.ValueReadWriter, parents ...types.Value) CommitOptions {
@@ -564,13 +562,13 @@ func (suite *DatabaseSuite) TestSetHead() {
 	a := types.String("a")
 	ds, err = suite.db.CommitValue(context.Background(), ds, a)
 	suite.NoError(err)
-	aCommitRef := mustHeadRef(ds) // To use in non-FF SetHead() below.
+	aCommitRef := mustHeadRef(ds) // To use in non-FF SetHeadToCommit() below.
 
 	b := types.String("b")
 	ds, err = suite.db.CommitValue(context.Background(), ds, b)
 	suite.NoError(err)
 	suite.True(mustHeadValue(ds).Equals(b))
-	bCommitRef := mustHeadRef(ds) // To use in FF SetHead() below.
+	bCommitRef := mustHeadRef(ds) // To use in FF SetHeadToCommit() below.
 
 	ds, err = suite.db.SetHead(context.Background(), ds, aCommitRef)
 	suite.NoError(err)

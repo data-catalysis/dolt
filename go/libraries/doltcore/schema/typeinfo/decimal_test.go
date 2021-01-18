@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,17 +15,18 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
 	"math/big"
 	"testing"
 	"time"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 func TestDecimalConvertNomsValueToValue(t *testing.T) {
@@ -70,18 +71,6 @@ func TestDecimalConvertNomsValueToValue(t *testing.T) {
 			types.Decimal(decimal.RequireFromString("4723245.01")),
 			"4723245.01",
 			false,
-		},
-		{
-			generateDecimalType(t, 9, 2),
-			types.Decimal(decimal.RequireFromString("14723245.01")),
-			"",
-			true,
-		},
-		{
-			generateDecimalType(t, 5, 4),
-			types.Decimal(decimal.RequireFromString("55.7159")),
-			"",
-			true,
 		},
 	}
 
@@ -145,7 +134,8 @@ func TestDecimalConvertValueToNomsValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, test.typ.String(), test.input), func(t *testing.T) {
-			output, err := test.typ.ConvertValueToNomsValue(test.input)
+			vrw := types.NewMemoryValueStore()
+			output, err := test.typ.ConvertValueToNomsValue(context.Background(), vrw, test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.True(t, test.output.Equals(output))
@@ -198,18 +188,6 @@ func TestDecimalFormatValue(t *testing.T) {
 			types.Decimal(decimal.RequireFromString("4723245.01")),
 			"4723245.01",
 			false,
-		},
-		{
-			generateDecimalType(t, 9, 2),
-			types.Decimal(decimal.RequireFromString("14723245.01")),
-			"",
-			true,
-		},
-		{
-			generateDecimalType(t, 5, 4),
-			types.Decimal(decimal.RequireFromString("55.7159")),
-			"",
-			true,
 		},
 	}
 
@@ -285,7 +263,8 @@ func TestDecimalParseValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, test.typ.String(), test.input), func(t *testing.T) {
-			output, err := test.typ.ParseValue(&test.input)
+			vrw := types.NewMemoryValueStore()
+			output, err := test.typ.ParseValue(context.Background(), vrw, &test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.True(t, test.output.Equals(output))
@@ -365,7 +344,8 @@ func TestDecimalMarshal(t *testing.T) {
 	for _, test := range tests {
 		t.Run(fmt.Sprintf("%v %v %v", test.precision, test.scale, test.val), func(t *testing.T) {
 			typ := &decimalType{sql.MustCreateDecimalType(test.precision, test.scale)}
-			val, err := typ.ConvertValueToNomsValue(test.val)
+			vrw := types.NewMemoryValueStore()
+			val, err := typ.ConvertValueToNomsValue(context.Background(), vrw, test.val)
 			if test.expectedErr {
 				assert.Error(t, err)
 			} else {
@@ -573,13 +553,14 @@ func TestDecimalRoundTrip(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v %v`, test.typ.String(), test.input, test.output), func(t *testing.T) {
-			parsed, err := test.typ.ConvertValueToNomsValue(test.input)
+			vrw := types.NewMemoryValueStore()
+			parsed, err := test.typ.ConvertValueToNomsValue(context.Background(), vrw, test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				output, err := test.typ.ConvertNomsValueToValue(parsed)
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)
-				parsed2, err := test.typ.ParseValue(&test.input)
+				parsed2, err := test.typ.ParseValue(context.Background(), vrw, &test.input)
 				require.NoError(t, err)
 				assert.Equal(t, parsed, parsed2)
 				output2, err := test.typ.FormatValue(parsed2)
@@ -587,7 +568,7 @@ func TestDecimalRoundTrip(t *testing.T) {
 				assert.Equal(t, test.output, *output2)
 			} else {
 				assert.Error(t, err)
-				_, err = test.typ.ParseValue(&test.input)
+				_, err = test.typ.ParseValue(context.Background(), vrw, &test.input)
 				assert.Error(t, err)
 			}
 		})

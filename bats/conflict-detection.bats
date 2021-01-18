@@ -291,7 +291,7 @@ SQL
 }
 
 @test "two branches add different column. merge. no conflict" {
-    skip https://github.com/liquidata-inc/dolt/issues/773
+    skip https://github.com/dolthub/dolt/issues/773
     dolt sql <<SQL
 CREATE TABLE test (
   pk BIGINT NOT NULL,
@@ -323,7 +323,7 @@ SQL
 
     run dolt sql -q 'select * from test;'
     [ $status -eq 0 ]
-    [[ "${lines[3]}" =~ "| 0  | 1  | 2  | 3  | 4  | 5  | <NULL> | <NULL> |" ]] || false
+    [[ "${lines[3]}" =~ "| 0  | 1  | 2  | 3  | 4  | 5  |  NULL  |  NULL  |" ]] || false
 }
 
 @test "two branches add same column, different types. merge. conflict" {
@@ -385,7 +385,7 @@ SQL
 }
 
 @test "two branches delete different column. merge. no conflict" {
-    skip https://github.com/liquidata-inc/dolt/issues/773
+    skip https://github.com/dolthub/dolt/issues/773
     dolt sql <<SQL
 CREATE TABLE test (
   pk BIGINT NOT NULL COMMENT 'tag:0',

@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,15 +15,16 @@
 package commands
 
 import (
+	"context"
 	"errors"
 	"strings"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema/typeinfo"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/dolthub/dolt/go/store/types"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/pipeline"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/pipeline"
 )
 
 type FilterFn = func(r row.Row) (matchesFilter bool)
@@ -73,7 +74,8 @@ func ParseWhere(sch schema.Schema, whereClause string) (FilterFn, error) {
 			val = types.String(valStr)
 		} else {
 			var err error
-			val, err = cols[0].TypeInfo.ParseValue(&valStr)
+			vrw := types.NewMemoryValueStore() // We don't want to persist anything, so we use an internal VRW
+			val, err = cols[0].TypeInfo.ParseValue(context.Background(), vrw, &valStr)
 			if err != nil {
 				return nil, errors.New("unable to convert '" + valStr + "' to " + col.TypeInfo.String())
 			}

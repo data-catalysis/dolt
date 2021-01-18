@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/liquidata-inc/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/hash"
 )
 
 type ValueCallback func(v Value) error
@@ -154,22 +154,22 @@ func (vs ValueSlice) Contains(nbf *NomsBinFormat, v Value) bool {
 }
 
 type ValueSort struct {
-	values []Value
-	nbf    *NomsBinFormat
+	Values []Value
+	Nbf    *NomsBinFormat
 }
 
-func (vs ValueSort) Len() int      { return len(vs.values) }
-func (vs ValueSort) Swap(i, j int) { vs.values[i], vs.values[j] = vs.values[j], vs.values[i] }
+func (vs ValueSort) Len() int      { return len(vs.Values) }
+func (vs ValueSort) Swap(i, j int) { vs.Values[i], vs.Values[j] = vs.Values[j], vs.Values[i] }
 func (vs ValueSort) Less(i, j int) (bool, error) {
-	return vs.values[i].Less(vs.nbf, vs.values[j])
+	return vs.Values[i].Less(vs.Nbf, vs.Values[j])
 }
 
 func (vs ValueSort) Equals(other ValueSort) bool {
-	return ValueSlice(vs.values).Equals(ValueSlice(other.values))
+	return ValueSlice(vs.Values).Equals(ValueSlice(other.Values))
 }
 
 func (vs ValueSort) Contains(v Value) bool {
-	return ValueSlice(vs.values).Contains(vs.nbf, v)
+	return ValueSlice(vs.Values).Contains(vs.Nbf, v)
 }
 
 type valueReadWriter interface {

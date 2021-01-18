@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/liquidata-inc/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/hash"
 )
 
 // Float is a Noms Value wrapper around the primitive float64 type.
@@ -87,7 +87,7 @@ func (v Float) writeTo(w nomsWriter, nbf *NomsBinFormat) error {
 }
 
 func (v Float) readFrom(nbf *NomsBinFormat, b *binaryNomsReader) (Value, error) {
-	return Float(b.readFloat(nbf)), nil
+	return Float(b.ReadFloat(nbf)), nil
 }
 
 func (v Float) skip(nbf *NomsBinFormat, b *binaryNomsReader) {

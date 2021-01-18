@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,40 +22,43 @@ import (
 
 	"github.com/fatih/color"
 
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/cli"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/errhand"
-	eventsapi "github.com/liquidata-inc/dolt/go/gen/proto/dolt/services/eventsapi/v1alpha1"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env/actions"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/merge"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/argparser"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/filesys"
-	"github.com/liquidata-inc/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
+	eventsapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/eventsapi/v1alpha1"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env/actions"
+	"github.com/dolthub/dolt/go/libraries/doltcore/merge"
+	"github.com/dolthub/dolt/go/libraries/utils/argparser"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/dolthub/dolt/go/store/hash"
 )
 
 const (
-	abortParam = "abort"
+	abortParam  = "abort"
+	squashParam = "squash"
+	noFFParam   = "no-ff"
 )
 
 var mergeDocs = cli.CommandDocumentationContent{
 	ShortDesc: "Join two or more development histories together",
 	LongDesc: `Incorporates changes from the named commits (since the time their histories diverged from the current branch) into the current branch.
 
-The second syntax ({{.LessThan}}dolt merge --abort{{.GreaterThan}}) can only be run after the merge has resulted in conflicts. git merge {{.EmphasisLeft}}--abort{{.EmphasisRight}} will abort the merge process and try to reconstruct the pre-merge state. However, if there were uncommitted changes when the merge started (and especially if those changes were further modified after the merge was started), dolt merge {{.EmphasisLeft}}--abort{{.EmphasisRight}} will in some cases be unable to reconstruct the original (pre-merge) changes. Therefore: 
+The second syntax ({{.LessThan}}dolt merge --abort{{.GreaterThan}}) can only be run after the merge has resulted in conflicts. dolt merge {{.EmphasisLeft}}--abort{{.EmphasisRight}} will abort the merge process and try to reconstruct the pre-merge state. However, if there were uncommitted changes when the merge started (and especially if those changes were further modified after the merge was started), dolt merge {{.EmphasisLeft}}--abort{{.EmphasisRight}} will in some cases be unable to reconstruct the original (pre-merge) changes. Therefore: 
 
 {{.LessThan}}Warning{{.GreaterThan}}: Running dolt merge with non-trivial uncommitted changes is discouraged: while possible, it may leave you in a state that is hard to back out of in the case of a conflict.
 `,
 
 	Synopsis: []string{
-		"{{.LessThan}}branch{{.GreaterThan}}",
+		"[--squash] {{.LessThan}}branch{{.GreaterThan}}",
+		"--no-ff [-m message] {{.LessThan}}branch{{.GreaterThan}}",
 		"--abort",
 	},
 }
 
 var abortDetails = `Abort the current conflict resolution process, and try to reconstruct the pre-merge state.
 
-If there were uncommitted working set changes present when the merge started, {{.EmphasisLeft}}dolt merge --abort{{.EmphasisRight}} will be unable to reconstruct these changes. It is therefore recommended to always commit or stash your changes before running git merge.
+If there were uncommitted working set changes present when the merge started, {{.EmphasisLeft}}dolt merge --abort{{.EmphasisRight}} will be unable to reconstruct these changes. It is therefore recommended to always commit or stash your changes before running dolt merge.
 `
 
 type MergeCmd struct{}
@@ -79,6 +82,9 @@ func (cmd MergeCmd) CreateMarkdown(fs filesys.Filesys, path, commandStr string) 
 func (cmd MergeCmd) createArgParser() *argparser.ArgParser {
 	ap := argparser.NewArgParser()
 	ap.SupportsFlag(abortParam, "", abortDetails)
+	ap.SupportsFlag(squashParam, "", "Merges changes to the working set without updating the commit history")
+	ap.SupportsFlag(noFFParam, "", "Create a merge commit even when the merge resolves as a fast-forward.")
+	ap.SupportsString(cli.CommitMessageArg, "m", "msg", "Use the given {{.LessThan}}msg{{.GreaterThan}} as the commit message.")
 	return ap
 }
 
@@ -92,6 +98,11 @@ func (cmd MergeCmd) Exec(ctx context.Context, commandStr string, args []string, 
 	ap := cmd.createArgParser()
 	help, usage := cli.HelpAndUsagePrinters(cli.GetCommandDocumentation(commandStr, mergeDocs, ap))
 	apr := cli.ParseArgs(ap, args, help)
+
+	if apr.ContainsAll(squashParam, noFFParam) {
+		cli.PrintErrf("error: Flags '--%s' and '--%s' cannot be used together.\n", squashParam, noFFParam)
+		return 1
+	}
 
 	var verr errhand.VerboseError
 	if apr.Contains(abortParam) {
@@ -129,7 +140,7 @@ func (cmd MergeCmd) Exec(ctx context.Context, commandStr string, args []string, 
 			}
 
 			if verr == nil {
-				verr = mergeCommitSpec(ctx, dEnv, commitSpecStr)
+				verr = mergeCommitSpec(ctx, apr, dEnv, commitSpecStr)
 			}
 		}
 	}
@@ -151,7 +162,7 @@ func abortMerge(ctx context.Context, doltEnv *env.DoltEnv) errhand.VerboseError 
 	return errhand.BuildDError("fatal: failed to revert changes").AddCause(err).Build()
 }
 
-func mergeCommitSpec(ctx context.Context, dEnv *env.DoltEnv, commitSpecStr string) errhand.VerboseError {
+func mergeCommitSpec(ctx context.Context, apr *argparser.ArgParseResults, dEnv *env.DoltEnv, commitSpecStr string) errhand.VerboseError {
 	cm1, verr := ResolveCommitWithVErr(dEnv, "HEAD")
 
 	if verr != nil {
@@ -183,6 +194,11 @@ func mergeCommitSpec(ctx context.Context, dEnv *env.DoltEnv, commitSpecStr strin
 
 	cli.Println("Updating", h1.String()+".."+h2.String())
 
+	squash := apr.Contains(squashParam)
+	if squash {
+		cli.Println("Squash commit -- not updating HEAD")
+	}
+
 	tblNames, workingDiffs, err := dEnv.MergeWouldStompChanges(ctx, cm2)
 
 	if err != nil {
@@ -199,13 +215,69 @@ func mergeCommitSpec(ctx context.Context, dEnv *env.DoltEnv, commitSpecStr strin
 	}
 
 	if ok, err := cm1.CanFastForwardTo(ctx, cm2); ok {
-		return executeFFMerge(ctx, dEnv, cm2, workingDiffs)
+		if apr.Contains(noFFParam) {
+			return execNoFFMerge(ctx, apr, dEnv, cm2, verr, workingDiffs)
+		} else {
+			return executeFFMerge(ctx, squash, dEnv, cm2, workingDiffs)
+		}
 	} else if err == doltdb.ErrUpToDate || err == doltdb.ErrIsAhead {
 		cli.Println("Already up to date.")
 		return nil
 	} else {
-		return executeMerge(ctx, dEnv, cm1, cm2, workingDiffs)
+		return executeMerge(ctx, squash, dEnv, cm1, cm2, workingDiffs)
 	}
+}
+
+func execNoFFMerge(ctx context.Context, apr *argparser.ArgParseResults, dEnv *env.DoltEnv, cm2 *doltdb.Commit, verr errhand.VerboseError, workingDiffs map[string]hash.Hash) errhand.VerboseError {
+	mergedRoot, err := cm2.GetRootValue()
+
+	if err != nil {
+		return errhand.BuildDError("error: reading from database").AddCause(err).Build()
+	}
+
+	verr = mergedRootToWorking(ctx, false, dEnv, mergedRoot, workingDiffs, cm2, map[string]*merge.MergeStats{})
+
+	if verr != nil {
+		return verr
+	}
+
+	msg, msgOk := apr.GetValue(cli.CommitMessageArg)
+	if !msgOk {
+		msg = getCommitMessageFromEditor(ctx, dEnv)
+	}
+
+	t := doltdb.CommitNowFunc()
+	if commitTimeStr, ok := apr.GetValue(cli.DateParam); ok {
+		var err error
+		t, err = cli.ParseDate(commitTimeStr)
+
+		if err != nil {
+			return errhand.BuildDError("error: invalid date").AddCause(err).Build()
+		}
+	}
+
+	name, email, err := actions.GetNameAndEmail(dEnv.Config)
+
+	if err != nil {
+		return errhand.BuildDError("error: committing").AddCause(err).Build()
+	}
+
+	dbData := dEnv.DbData()
+
+	_, err = actions.CommitStaged(ctx, dbData, actions.CommitStagedProps{
+		Message:          msg,
+		Date:             t,
+		AllowEmpty:       apr.Contains(cli.AllowEmptyFlag),
+		CheckForeignKeys: !apr.Contains(forceFlag),
+		Name:             name,
+		Email:            email,
+	})
+
+	if err != nil {
+		return errhand.BuildDError("error: committing").AddCause(err).Build()
+	}
+
+	return nil
 }
 
 func applyChanges(ctx context.Context, root *doltdb.RootValue, workingDiffs map[string]hash.Hash) (*doltdb.RootValue, errhand.VerboseError) {
@@ -221,7 +293,7 @@ func applyChanges(ctx context.Context, root *doltdb.RootValue, workingDiffs map[
 	return root, nil
 }
 
-func executeFFMerge(ctx context.Context, dEnv *env.DoltEnv, cm2 *doltdb.Commit, workingDiffs map[string]hash.Hash) errhand.VerboseError {
+func executeFFMerge(ctx context.Context, squash bool, dEnv *env.DoltEnv, cm2 *doltdb.Commit, workingDiffs map[string]hash.Hash) errhand.VerboseError {
 	cli.Println("Fast-forward")
 
 	rv, err := cm2.GetRootValue()
@@ -255,10 +327,12 @@ func executeFFMerge(ctx context.Context, dEnv *env.DoltEnv, cm2 *doltdb.Commit, 
 		return errhand.BuildDError("error: unable to determine unstaged docs").AddCause(err).Build()
 	}
 
-	err = dEnv.DoltDB.FastForward(ctx, dEnv.RepoState.CWBHeadRef(), cm2)
+	if !squash {
+		err = dEnv.DoltDB.FastForward(ctx, dEnv.RepoState.CWBHeadRef(), cm2)
 
-	if err != nil {
-		return errhand.BuildDError("Failed to write database").AddCause(err).Build()
+		if err != nil {
+			return errhand.BuildDError("Failed to write database").AddCause(err).Build()
+		}
 	}
 
 	dEnv.RepoState.Working = workingHash.String()
@@ -284,7 +358,7 @@ and take the hash for your current branch and use it for the value for "staged" 
 	return nil
 }
 
-func executeMerge(ctx context.Context, dEnv *env.DoltEnv, cm1, cm2 *doltdb.Commit, workingDiffs map[string]hash.Hash) errhand.VerboseError {
+func executeMerge(ctx context.Context, squash bool, dEnv *env.DoltEnv, cm1, cm2 *doltdb.Commit, workingDiffs map[string]hash.Hash) errhand.VerboseError {
 	mergedRoot, tblToStats, err := merge.MergeCommits(ctx, cm1, cm2)
 
 	if err != nil {
@@ -297,6 +371,12 @@ func executeMerge(ctx context.Context, dEnv *env.DoltEnv, cm1, cm2 *doltdb.Commi
 			return errhand.BuildDError("Bad merge").AddCause(err).Build()
 		}
 	}
+
+	return mergedRootToWorking(ctx, squash, dEnv, mergedRoot, workingDiffs, cm2, tblToStats)
+}
+
+func mergedRootToWorking(ctx context.Context, squash bool, dEnv *env.DoltEnv, mergedRoot *doltdb.RootValue, workingDiffs map[string]hash.Hash, cm2 *doltdb.Commit, tblToStats map[string]*merge.MergeStats) errhand.VerboseError {
+	var err error
 
 	workingRoot := mergedRoot
 	if len(workingDiffs) > 0 {
@@ -313,10 +393,12 @@ func executeMerge(ctx context.Context, dEnv *env.DoltEnv, cm1, cm2 *doltdb.Commi
 		return errhand.BuildDError("error: failed to hash commit").AddCause(err).Build()
 	}
 
-	err = dEnv.RepoState.StartMerge(h2.String(), dEnv.FS)
+	if !squash {
+		err = dEnv.RepoState.StartMerge(h2.String(), dEnv.FS)
 
-	if err != nil {
-		return errhand.BuildDError("Unable to update the repo state").AddCause(err).Build()
+		if err != nil {
+			return errhand.BuildDError("Unable to update the repo state").AddCause(err).Build()
+		}
 	}
 
 	unstagedDocs, err := actions.GetUnstagedDocs(ctx, dEnv)
@@ -336,7 +418,7 @@ func executeMerge(ctx context.Context, dEnv *env.DoltEnv, cm1, cm2 *doltdb.Commi
 			if err != nil {
 				return errhand.BuildDError("error: failed to update docs to the new working root").AddCause(err).Build()
 			}
-			verr = UpdateStagedWithVErr(dEnv, mergedRoot)
+			verr = UpdateStagedWithVErr(dEnv.DoltDB, dEnv.RepoStateWriter(), mergedRoot)
 			if verr != nil {
 				// Log a new message here to indicate that merge was successful, only staging failed.
 				cli.Println("Unable to stage changes: add and commit to finish merge")

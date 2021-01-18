@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ type NotFound struct {
 
 // Error returns the key which was not found
 func (nf NotFound) Error() string {
-	return nf.Key
+	return "Blob not found: " + nf.Key
 }
 
 // IsNotFoundError is a helper method used to determine if returned errors resulted

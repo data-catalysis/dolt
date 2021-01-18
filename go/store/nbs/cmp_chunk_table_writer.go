@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ import (
 
 	"github.com/golang/snappy"
 
-	nomshash "github.com/liquidata-inc/dolt/go/store/hash"
+	nomshash "github.com/dolthub/dolt/go/store/hash"
 )
 
 const defaultTableSinkBlockSize = 2 * 1024 * 1024
@@ -49,8 +49,8 @@ type CmpChunkTableWriter struct {
 }
 
 // NewCmpChunkTableWriter creates a new CmpChunkTableWriter instance with a default ByteSink
-func NewCmpChunkTableWriter() (*CmpChunkTableWriter, error) {
-	s, err := NewBufferedFileByteSink(defaultTableSinkBlockSize, defaultChBufferSize)
+func NewCmpChunkTableWriter(tempDir string) (*CmpChunkTableWriter, error) {
+	s, err := NewBufferedFileByteSink(tempDir, defaultTableSinkBlockSize, defaultChBufferSize)
 
 	if err != nil {
 		return nil, err
@@ -62,6 +62,10 @@ func NewCmpChunkTableWriter() (*CmpChunkTableWriter, error) {
 // Size returns the number of compressed chunks that have been added
 func (tw *CmpChunkTableWriter) Size() int {
 	return len(tw.prefixes)
+}
+
+func (tw *CmpChunkTableWriter) ChunkCount() uint32 {
+	return uint32(len(tw.prefixes))
 }
 
 // Gets the size of the entire table file in bytes

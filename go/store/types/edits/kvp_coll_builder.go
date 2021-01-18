@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 
 package edits
 
-import "github.com/liquidata-inc/dolt/go/store/types"
+import "github.com/dolthub/dolt/go/store/types"
 
 // KVPCollBuilder is used to build a KVPCollection.  It creates two buffers which it fills with KVPs.  When a buffer
 // is filled the target buffer is changed for subsequent adds.  New buffers can be added to the builder so that

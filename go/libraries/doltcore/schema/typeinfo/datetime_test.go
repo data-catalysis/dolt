@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -22,7 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 func TestDatetimeConvertNomsValueToValue(t *testing.T) {
@@ -34,7 +35,7 @@ func TestDatetimeConvertNomsValueToValue(t *testing.T) {
 	}{
 		{
 			DateType,
-			types.Timestamp(time.Date(1880, 1, 2, 4, 6, 3, 472382485, time.UTC)),
+			types.Timestamp(time.Date(1880, 1, 2, 0, 0, 0, 0, time.UTC)),
 			time.Date(1880, 1, 2, 0, 0, 0, 0, time.UTC),
 			false,
 		},
@@ -55,18 +56,6 @@ func TestDatetimeConvertNomsValueToValue(t *testing.T) {
 			types.Timestamp(time.Date(9999, 12, 31, 23, 59, 59, 999999000, time.UTC)),
 			time.Date(9999, 12, 31, 23, 59, 59, 999999000, time.UTC),
 			false,
-		},
-		{
-			TimestampType,
-			types.Timestamp(time.Date(2039, 1, 2, 4, 6, 3, 472382485, time.UTC)),
-			time.Time{},
-			true,
-		},
-		{
-			DatetimeType,
-			types.Timestamp(time.Date(5, 1, 2, 4, 6, 3, 472382485, time.UTC)),
-			time.Time{},
-			true,
 		},
 	}
 
@@ -130,7 +119,8 @@ func TestDatetimeConvertValueToNomsValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, test.typ.String(), test.input), func(t *testing.T) {
-			output, err := test.typ.ConvertValueToNomsValue(test.input)
+			vrw := types.NewMemoryValueStore()
+			output, err := test.typ.ConvertValueToNomsValue(context.Background(), vrw, test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)
@@ -171,18 +161,6 @@ func TestDatetimeFormatValue(t *testing.T) {
 			types.Timestamp(time.Date(9999, 12, 31, 23, 59, 59, 999999000, time.UTC)),
 			"9999-12-31 23:59:59.999999",
 			false,
-		},
-		{
-			TimestampType,
-			types.Timestamp(time.Date(2039, 1, 2, 4, 6, 3, 472382485, time.UTC)),
-			"",
-			true,
-		},
-		{
-			DatetimeType,
-			types.Timestamp(time.Date(5, 1, 2, 4, 6, 3, 472382485, time.UTC)),
-			"",
-			true,
 		},
 	}
 
@@ -259,7 +237,8 @@ func TestDatetimeParseValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, test.typ.String(), test.input), func(t *testing.T) {
-			output, err := test.typ.ParseValue(&test.input)
+			vrw := types.NewMemoryValueStore()
+			output, err := test.typ.ParseValue(context.Background(), vrw, &test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)

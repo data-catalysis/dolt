@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,13 +15,13 @@
 package rowconv
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema/typeinfo"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/pipeline"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 var IdentityConverter = &RowConverter{nil, true, nil}
@@ -40,7 +40,7 @@ func newIdentityConverter(mapping *FieldMapping) *RowConverter {
 }
 
 // NewRowConverter creates a row converter from a given FieldMapping.
-func NewRowConverter(mapping *FieldMapping) (*RowConverter, error) {
+func NewRowConverter(ctx context.Context, vrw types.ValueReadWriter, mapping *FieldMapping) (*RowConverter, error) {
 	if nec, err := isNecessary(mapping.SrcSch, mapping.DestSch, mapping.SrcToDest); err != nil {
 		return nil, err
 	} else if !nec {
@@ -74,7 +74,7 @@ func NewRowConverter(mapping *FieldMapping) (*RowConverter, error) {
 			}
 		} else {
 			convFuncs[srcTag] = func(v types.Value) (types.Value, error) {
-				return typeinfo.Convert(v, srcCol.TypeInfo, destCol.TypeInfo)
+				return typeinfo.Convert(ctx, vrw, v, srcCol.TypeInfo, destCol.TypeInfo)
 			}
 		}
 	}
@@ -83,7 +83,7 @@ func NewRowConverter(mapping *FieldMapping) (*RowConverter, error) {
 }
 
 // NewImportRowConverter creates a row converter from a given FieldMapping specifically for importing.
-func NewImportRowConverter(mapping *FieldMapping) (*RowConverter, error) {
+func NewImportRowConverter(ctx context.Context, vrw types.ValueReadWriter, mapping *FieldMapping) (*RowConverter, error) {
 	if nec, err := isNecessary(mapping.SrcSch, mapping.DestSch, mapping.SrcToDest); err != nil {
 		return nil, err
 	} else if !nec {
@@ -118,15 +118,15 @@ func NewImportRowConverter(mapping *FieldMapping) (*RowConverter, error) {
 		} else if destCol.TypeInfo.Equals(typeinfo.PseudoBoolType) || destCol.TypeInfo.Equals(typeinfo.Int8Type) {
 			// BIT(1) and BOOLEAN (MySQL alias for TINYINT or Int8) are both logical stand-ins for a bool type
 			convFuncs[srcTag] = func(v types.Value) (types.Value, error) {
-				intermediateVal, err := typeinfo.Convert(v, srcCol.TypeInfo, typeinfo.BoolType)
+				intermediateVal, err := typeinfo.Convert(ctx, vrw, v, srcCol.TypeInfo, typeinfo.BoolType)
 				if err != nil {
 					return nil, err
 				}
-				return typeinfo.Convert(intermediateVal, typeinfo.BoolType, destCol.TypeInfo)
+				return typeinfo.Convert(ctx, vrw, intermediateVal, typeinfo.BoolType, destCol.TypeInfo)
 			}
 		} else {
 			convFuncs[srcTag] = func(v types.Value) (types.Value, error) {
-				return typeinfo.Convert(v, srcCol.TypeInfo, destCol.TypeInfo)
+				return typeinfo.Convert(ctx, vrw, v, srcCol.TypeInfo, destCol.TypeInfo)
 			}
 		}
 	}
@@ -219,35 +219,4 @@ func isNecessary(srcSch, destSch schema.Schema, destToSrc map[uint64]uint64) (bo
 	}
 
 	return false, nil
-}
-
-// GetRowConvTranformFunc can be used to wrap a RowConverter and use that RowConverter in a pipeline.
-func GetRowConvTransformFunc(rc *RowConverter) func(row.Row, pipeline.ReadableMap) ([]*pipeline.TransformedRowResult, string) {
-	if rc.IdentityConverter {
-		return func(inRow row.Row, props pipeline.ReadableMap) (outRows []*pipeline.TransformedRowResult, badRowDetails string) {
-			return []*pipeline.TransformedRowResult{{RowData: inRow, PropertyUpdates: nil}}, ""
-		}
-	} else {
-		return func(inRow row.Row, props pipeline.ReadableMap) (outRows []*pipeline.TransformedRowResult, badRowDetails string) {
-			outRow, err := rc.Convert(inRow)
-
-			if err != nil {
-				return nil, err.Error()
-			}
-
-			if isv, err := row.IsValid(outRow, rc.DestSch); err != nil {
-				return nil, err.Error()
-			} else if !isv {
-				col, err := row.GetInvalidCol(outRow, rc.DestSch)
-
-				if err != nil {
-					return nil, "invalid column"
-				} else {
-					return nil, "invalid column: " + col.Name
-				}
-			}
-
-			return []*pipeline.TransformedRowResult{{RowData: outRow, PropertyUpdates: nil}}, ""
-		}
-	}
 }

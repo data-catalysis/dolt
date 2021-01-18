@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,10 +14,21 @@
 
 package dfunctions
 
-import "github.com/liquidata-inc/go-mysql-server/sql"
+import "github.com/dolthub/go-mysql-server/sql"
 
 var DoltFunctions = []sql.Function{
 	sql.Function1{Name: HashOfFuncName, Fn: NewHashOf},
-	sql.Function1{Name: CommitFuncName, Fn: NewCommitFunc},
-	sql.Function1{Name: MergeFuncName, Fn: NewMergeFunc},
+	sql.FunctionN{Name: CommitFuncName, Fn: NewCommitFunc},
+	sql.FunctionN{Name: MergeFuncName, Fn: NewMergeFunc},
+	sql.Function1{Name: resetFuncName, Fn: NewResetFunc},
+	sql.Function0{Name: VersionFuncName, Fn: NewVersion},
+	sql.FunctionN{Name: DoltCommitFuncName, Fn: NewDoltCommitFunc},
+	sql.FunctionN{Name: DoltAddFuncName, Fn: NewDoltAddFunc},
+	sql.FunctionN{Name: DoltResetFuncName, Fn: NewDoltResetFunc},
+}
+
+// These are the DoltFunctions that get exposed to Dolthub Api.
+var DolthubApiFunctions = []sql.Function{
+	sql.Function1{Name: HashOfFuncName, Fn: NewHashOf},
+	sql.Function0{Name: VersionFuncName, Fn: NewVersion},
 }

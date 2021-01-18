@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,12 +19,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema/encoding"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema/encoding"
 )
+
+var ErrKeylessAltTbl = errors.New("schema alterations not supported for keyless tables")
 
 // DropColumn drops a column from a table, and removes its associated cell values
 func DropColumn(ctx context.Context, tbl *doltdb.Table, colName string, foreignKeys []doltdb.ForeignKey) (*doltdb.Table, error) {
@@ -33,9 +33,12 @@ func DropColumn(ctx context.Context, tbl *doltdb.Table, colName string, foreignK
 	}
 
 	tblSch, err := tbl.GetSchema(ctx)
-
 	if err != nil {
 		return nil, err
+	}
+
+	if schema.IsKeyless(tblSch) {
+		return nil, ErrKeylessAltTbl
 	}
 
 	allCols := tblSch.GetAllCols()
@@ -90,7 +93,10 @@ func DropColumn(ctx context.Context, tbl *doltdb.Table, colName string, foreignK
 		return nil, err
 	}
 
-	newSch := schema.SchemaFromCols(colColl)
+	newSch, err := schema.SchemaFromCols(colColl)
+	if err != nil {
+		return nil, err
+	}
 	newSch.Indexes().AddIndex(tblSch.Indexes().AllIndexes()...)
 
 	vrw := tbl.ValueReadWriter()
@@ -102,64 +108,15 @@ func DropColumn(ctx context.Context, tbl *doltdb.Table, colName string, foreignK
 
 	rd, err := tbl.GetRowData(ctx)
 
-	prunedRowData, err := dropColumnValuesForTag(ctx, tbl.Format(), newSch, rd, dropTag)
-
-	if err != nil {
-		return nil, err
-	}
-
 	indexData, err := tbl.GetIndexData(ctx)
 	if err != nil {
 		return nil, err
 	}
-	newTable, err := doltdb.NewTable(ctx, vrw, schemaVal, prunedRowData, &indexData)
+	newTable, err := doltdb.NewTable(ctx, vrw, schemaVal, rd, indexData)
 
 	if err != nil {
 		return nil, err
 	}
 
 	return newTable, nil
-}
-
-func dropColumnValuesForTag(ctx context.Context, nbf *types.NomsBinFormat, newSch schema.Schema, rowData types.Map, dropTag uint64) (types.Map, error) {
-	re := rowData.Edit()
-
-	mi, err := rowData.BufferedIterator(ctx)
-
-	if err != nil {
-		return types.EmptyMap, err
-	}
-
-	for {
-		k, v, err := mi.Next(ctx)
-
-		if k == nil || v == nil {
-			break
-		}
-
-		if err != nil {
-			return types.EmptyMap, err
-		}
-
-		// can't drop primary key columns, tag is in map value
-		tv, err := row.ParseTaggedValues(v.(types.Tuple))
-
-		if err != nil {
-			return types.EmptyMap, err
-		}
-
-		_, found := tv[dropTag]
-		if found {
-			delete(tv, dropTag)
-			re.Set(k, tv.NomsTupleForNonPKCols(nbf, newSch.GetNonPKCols()))
-		}
-	}
-
-	prunedRowData, err := re.Map(ctx)
-
-	if err != nil {
-		return types.EmptyMap, nil
-	}
-
-	return prunedRowData, nil
 }

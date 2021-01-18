@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,13 +21,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/untyped"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/untyped"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 var UUIDS = []uuid.UUID{
@@ -47,7 +45,11 @@ const (
 	TitleTag
 	NextTag // leave last
 )
-const IndexName = "idx_name"
+
+const (
+	TableName = "people"
+	IndexName = "idx_name"
+)
 
 var typedColColl, _ = schema.NewColCollection(
 	schema.NewColumn("id", IdTag, types.UUIDKind, true, schema.NotNullConstraint{}),
@@ -57,7 +59,10 @@ var typedColColl, _ = schema.NewColCollection(
 	schema.NewColumn("title", TitleTag, types.StringKind, false),
 )
 
-var TypedSchema = schema.SchemaFromCols(typedColColl)
+// modified by init()
+var TypedSchema = schema.MustSchemaFromCols(typedColColl)
+
+// modified by init()
 var UntypedSchema, _ = untyped.UntypeSchema(TypedSchema)
 var TypedRows []row.Row
 var UntypedRows []row.Row
@@ -129,52 +134,6 @@ func NewTypedRow(id uuid.UUID, name string, age uint, isMarried bool, title *str
 	}
 
 	return r
-}
-
-func AddRowToRoot(dEnv *env.DoltEnv, ctx context.Context, root *doltdb.RootValue, tblName string, r row.Row) (*doltdb.RootValue, error) {
-
-	tbl, _, err := root.GetTable(ctx, tblName)
-
-	if err != nil {
-		return nil, err
-	}
-
-	sch, err := tbl.GetSchema(ctx)
-
-	if err != nil {
-		return nil, err
-	}
-
-	m, err := tbl.GetRowData(ctx)
-
-	if err != nil {
-		return nil, err
-	} else {
-		me := m.Edit()
-		updated, err := me.Set(r.NomsMapKey(sch), r.NomsMapValue(sch)).Map(ctx)
-
-		if err != nil {
-			return nil, err
-		} else {
-			tbl, err = tbl.UpdateRows(ctx, updated)
-
-			if err != nil {
-				return nil, err
-			} else {
-				root, err = root.PutTable(ctx, tblName, tbl)
-
-				if err != nil {
-					return nil, err
-				} else {
-					err = dEnv.UpdateWorkingRoot(context.Background(), root)
-					if err != nil {
-						return nil, err
-					}
-					return dEnv.WorkingRoot(ctx)
-				}
-			}
-		}
-	}
 }
 
 func CreateTestDataTable(typed bool) (*table.InMemTable, schema.Schema) {
@@ -258,4 +217,20 @@ func MustRowData(t *testing.T, ctx context.Context, vrw types.ValueReadWriter, s
 	require.NoError(t, err)
 
 	return &m
+}
+
+// MustMap contructs a types.Map for a slice of alternating key, value types.Value.
+func MustMap(t *testing.T, vrw types.ValueReadWriter, kv ...types.Value) types.Map {
+	m, err := types.NewMap(context.Background(), vrw, kv...)
+	require.NoError(t, err)
+	return m
+}
+
+// MustMap contructs a types.Tuple for a slice of types.Values.
+func MustTuple(vals ...types.Value) types.Tuple {
+	tup, err := types.NewTuple(types.Format_Default, vals...)
+	if err != nil {
+		panic(err)
+	}
+	return tup
 }

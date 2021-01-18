@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,15 +17,15 @@ package commands
 import (
 	"context"
 
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/cli"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/errhand"
-	eventsapi "github.com/liquidata-inc/dolt/go/gen/proto/dolt/services/eventsapi/v1alpha1"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env/actions"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/ref"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/argparser"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/filesys"
+	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
+	eventsapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/eventsapi/v1alpha1"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env/actions"
+	"github.com/dolthub/dolt/go/libraries/doltcore/ref"
+	"github.com/dolthub/dolt/go/libraries/utils/argparser"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
 )
 
 var checkoutDocs = cli.CommandDocumentationContent{
@@ -33,14 +33,14 @@ var checkoutDocs = cli.CommandDocumentationContent{
 	LongDesc: `
 Updates tables in the working set to match the staged versions. If no paths are given, dolt checkout will also update HEAD to set the specified branch as the current branch.
 
-dolt checkout {{.LessThan}}}branch{{.GreaterThan}}
-   To prepare for working on {{.LessThan}}}branch{{.GreaterThan}}, switch to it by updating the index and the tables in the working tree, and by pointing HEAD at the branch. Local modifications to the tables in the working
-   tree are kept, so that they can be committed to the {{.LessThan}}}branch{{.GreaterThan}}.
+dolt checkout {{.LessThan}}branch{{.GreaterThan}}
+   To prepare for working on {{.LessThan}}branch{{.GreaterThan}}, switch to it by updating the index and the tables in the working tree, and by pointing HEAD at the branch. Local modifications to the tables in the working
+   tree are kept, so that they can be committed to the {{.LessThan}}branch{{.GreaterThan}}.
 
-dolt checkout -b {{.LessThan}}}new_branch{{.GreaterThan}} [{{.LessThan}}}start_point{{.GreaterThan}}]
+dolt checkout -b {{.LessThan}}new_branch{{.GreaterThan}} [{{.LessThan}}start_point{{.GreaterThan}}]
    Specifying -b causes a new branch to be created as if dolt branch were called and then checked out.
 
-dolt checkout {{.LessThan}}}table{{.GreaterThan}}...
+dolt checkout {{.LessThan}}table{{.GreaterThan}}...
   To update table(s) with their values in HEAD `,
 	Synopsis: []string{
 		`{{.LessThan}}branch{{.GreaterThan}}`,
@@ -121,7 +121,7 @@ func (cmd CheckoutCmd) Exec(ctx context.Context, commandStr string, args []strin
 		return HandleVErrAndExitCode(verr, usagePrt)
 	}
 
-	tbls, docs, err := actions.GetTblsAndDocDetails(dEnv, args)
+	tbls, docs, err := actions.GetTblsAndDocDetails(dEnv.DocsReadWriter(), args)
 	if err != nil {
 		verr := errhand.BuildDError("error: unable to parse arguments.").AddCause(err).Build()
 		return HandleVErrAndExitCode(verr, usagePrt)

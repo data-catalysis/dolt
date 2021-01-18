@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/liquidata-inc/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/hash"
 )
 
 // Int is a Noms Value wrapper around the primitive int32 type.
@@ -88,7 +88,7 @@ func (v Int) writeTo(w nomsWriter, nbf *NomsBinFormat) error {
 }
 
 func (v Int) readFrom(nbf *NomsBinFormat, b *binaryNomsReader) (Value, error) {
-	return Int(b.readInt()), nil
+	return Int(b.ReadInt()), nil
 }
 
 func (v Int) skip(nbf *NomsBinFormat, b *binaryNomsReader) {

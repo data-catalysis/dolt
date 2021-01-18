@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,13 +15,14 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/shopspring/decimal"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 const (
@@ -68,7 +69,7 @@ func CreateDecimalTypeFromParams(params map[string]string) (TypeInfo, error) {
 // ConvertNomsValueToValue implements TypeInfo interface.
 func (ti *decimalType) ConvertNomsValueToValue(v types.Value) (interface{}, error) {
 	if val, ok := v.(types.Decimal); ok {
-		return ti.sqlDecimalType.Convert(decimal.Decimal(val))
+		return decimal.Decimal(val).StringFixed(int32(ti.sqlDecimalType.Scale())), nil
 	}
 	if _, ok := v.(types.Null); ok || v == nil {
 		return nil, nil
@@ -76,8 +77,27 @@ func (ti *decimalType) ConvertNomsValueToValue(v types.Value) (interface{}, erro
 	return nil, fmt.Errorf(`"%v" cannot convert NomsKind "%v" to a value`, ti.String(), v.Kind())
 }
 
+// ReadFrom reads a go value from a noms types.CodecReader directly
+func (ti *decimalType) ReadFrom(_ *types.NomsBinFormat, reader types.CodecReader) (interface{}, error) {
+	k := reader.ReadKind()
+	switch k {
+	case types.DecimalKind:
+		dec, err := reader.ReadDecimal()
+
+		if err != nil {
+			return nil, err
+		}
+
+		return dec.StringFixed(int32(ti.sqlDecimalType.Scale())), nil
+	case types.NullKind:
+		return nil, nil
+	}
+
+	return nil, fmt.Errorf(`"%v" cannot convert NomsKind "%v" to a value`, ti.String(), k)
+}
+
 // ConvertValueToNomsValue implements TypeInfo interface.
-func (ti *decimalType) ConvertValueToNomsValue(v interface{}) (types.Value, error) {
+func (ti *decimalType) ConvertValueToNomsValue(ctx context.Context, vrw types.ValueReadWriter, v interface{}) (types.Value, error) {
 	if v == nil {
 		return types.NullValue, nil
 	}
@@ -134,8 +154,17 @@ func (ti *decimalType) GetTypeParams() map[string]string {
 
 // IsValid implements TypeInfo interface.
 func (ti *decimalType) IsValid(v types.Value) bool {
-	_, err := ti.ConvertNomsValueToValue(v)
-	return err == nil
+	if val, ok := v.(types.Decimal); ok {
+		_, err := ti.sqlDecimalType.Convert(decimal.Decimal(val))
+		if err != nil {
+			return false
+		}
+		return true
+	}
+	if _, ok := v.(types.Null); ok || v == nil {
+		return true
+	}
+	return false
 }
 
 // NomsKind implements TypeInfo interface.
@@ -144,11 +173,16 @@ func (ti *decimalType) NomsKind() types.NomsKind {
 }
 
 // ParseValue implements TypeInfo interface.
-func (ti *decimalType) ParseValue(str *string) (types.Value, error) {
+func (ti *decimalType) ParseValue(ctx context.Context, vrw types.ValueReadWriter, str *string) (types.Value, error) {
 	if str == nil || *str == "" {
 		return types.NullValue, nil
 	}
-	return ti.ConvertValueToNomsValue(*str)
+	return ti.ConvertValueToNomsValue(context.Background(), nil, *str)
+}
+
+// Promote implements TypeInfo interface.
+func (ti *decimalType) Promote() TypeInfo {
+	return &decimalType{ti.sqlDecimalType.Promote().(sql.DecimalType)}
 }
 
 // String implements TypeInfo interface.

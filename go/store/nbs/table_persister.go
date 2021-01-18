@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/liquidata-inc/dolt/go/store/util/sizecache"
+	"github.com/dolthub/dolt/go/store/util/sizecache"
 )
 
 // tablePersister allows interaction with persistent storage. It provides
@@ -50,6 +50,9 @@ type tablePersister interface {
 
 	// Open a table named |name|, containing |chunkCount| chunks.
 	Open(ctx context.Context, name addr, chunkCount uint32, stats *Stats) (chunkSource, error)
+
+	// PruneTableFiles deletes old table files that are no longer referenced in the manifest.
+	PruneTableFiles(ctx context.Context, contents manifestContents) error
 }
 
 // indexCache provides sized storage for table indices. While getting and/or

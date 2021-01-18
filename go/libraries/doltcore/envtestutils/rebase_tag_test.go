@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,23 +18,24 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strconv"
 	"testing"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
-	"github.com/liquidata-inc/vitess/go/sqltypes"
+	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/dolthub/vitess/go/sqltypes"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	dtu "github.com/liquidata-inc/dolt/go/libraries/doltcore/dtestutils"
-	tc "github.com/liquidata-inc/dolt/go/libraries/doltcore/dtestutils/testcommands"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/rebase"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema/typeinfo"
-	dsqle "github.com/liquidata-inc/dolt/go/libraries/doltcore/sqle"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	dtu "github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
+	tc "github.com/dolthub/dolt/go/libraries/doltcore/dtestutils/testcommands"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/rebase"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
+	dsqle "github.com/dolthub/dolt/go/libraries/doltcore/sqle"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 const (
@@ -43,8 +44,8 @@ const (
 	_
 	AgeTag
 )
-const DripTag = 13
-const DripTagRebased = 19
+const DripTag = 2360
+const DripTagRebased = 2361
 
 type RebaseTagTest struct {
 	// The name of this test. Names should be unique and descriptive.
@@ -64,13 +65,13 @@ type RebaseTagTest struct {
 	ExpectedErrStr string
 }
 
-var createPeopleTable = fmt.Sprintf(`
+var createPeopleTable = `
 	create table people (
-		id int comment 'tag:%d',
-		name varchar(20) not null comment 'tag:%d',
-		age int comment 'tag:%d',
+		id int,
+		name varchar(20) not null,
+		age int,
 		primary key (id)
-	);`, IdTag, NameTag, AgeTag)
+	);`
 
 func columnCollection(cols ...schema.Column) *schema.ColCollection {
 	pcc, err := schema.NewColCollection(cols...)
@@ -81,7 +82,7 @@ func columnCollection(cols ...schema.Column) *schema.ColCollection {
 }
 
 func newRow(vals row.TaggedValues, cc *schema.ColCollection) row.Row {
-	r, err := row.New(types.Format_7_18, schema.SchemaFromCols(cc), vals)
+	r, err := row.New(types.Format_7_18, schema.MustSchemaFromCols(cc), vals)
 	if err != nil {
 		panic(err)
 	}
@@ -89,7 +90,7 @@ func newRow(vals row.TaggedValues, cc *schema.ColCollection) row.Row {
 }
 
 func newColTypeInfo(name string, tag uint64, typeInfo typeinfo.TypeInfo, partOfPK bool, constraints ...schema.ColConstraint) schema.Column {
-	c, err := schema.NewColumnWithTypeInfo(name, tag, typeInfo, partOfPK, constraints...)
+	c, err := schema.NewColumnWithTypeInfo(name, tag, typeInfo, partOfPK, "", false, "", constraints...)
 	if err != nil {
 		panic("could not create column")
 	}
@@ -133,14 +134,14 @@ var RebaseTagTests = []RebaseTagTest{
 		OldTag:            DripTag,
 		NewTag:            DripTagRebased,
 		SelectResultQuery: "select * from people;",
-		ExpectedSchema:    schema.SchemaFromCols(people),
+		ExpectedSchema:    schema.MustSchemaFromCols(people),
 		ExpectedRows:      []row.Row{},
 	},
 	{
 		Name: "rebase entire history",
 		Commands: []tc.Command{
 			tc.Query{Query: createPeopleTable},
-			tc.Query{Query: `alter table people add drip double comment 'tag:` + strconv.Itoa(DripTag) + `';`},
+			tc.Query{Query: `alter table people add drip double;`},
 			tc.Query{Query: `insert into people (id, name, age, drip) values
 				(10, "Patty Bouvier", 40, 8.5),
 				(11, "Selma Bouvier", 40, 8.5);`},
@@ -149,7 +150,7 @@ var RebaseTagTests = []RebaseTagTest{
 		OldTag:            DripTag,
 		NewTag:            DripTagRebased,
 		SelectResultQuery: "select * from people;",
-		ExpectedSchema:    schema.SchemaFromCols(peopleWithDrip),
+		ExpectedSchema:    schema.MustSchemaFromCols(peopleWithDrip),
 		ExpectedRows: []row.Row{
 			newRow(row.TaggedValues{IdTag: types.Int(10), NameTag: types.String("Patty Bouvier"), AgeTag: types.Int(40), DripTagRebased: types.Float(8.5)}, peopleWithDrip),
 			newRow(row.TaggedValues{IdTag: types.Int(11), NameTag: types.String("Selma Bouvier"), AgeTag: types.Int(40), DripTagRebased: types.Float(8.5)}, peopleWithDrip),
@@ -160,13 +161,13 @@ var RebaseTagTests = []RebaseTagTest{
 		Commands: []tc.Command{
 			tc.Query{Query: createPeopleTable},
 			tc.CommitAll{Message: "made changes"},
-			tc.Query{Query: `alter table people add drip double comment 'tag:` + strconv.Itoa(DripTag) + `';`},
+			tc.Query{Query: `alter table people add drip double;`},
 			tc.CommitAll{Message: "made changes"},
 		},
 		OldTag:            DripTag,
 		NewTag:            DripTagRebased,
 		SelectResultQuery: "select * from people;",
-		ExpectedSchema:    schema.SchemaFromCols(peopleWithDrip),
+		ExpectedSchema:    schema.MustSchemaFromCols(peopleWithDrip),
 		ExpectedRows:      []row.Row{},
 	},
 	{
@@ -175,14 +176,14 @@ var RebaseTagTests = []RebaseTagTest{
 			tc.Query{Query: createPeopleTable},
 			tc.Query{Query: `insert into people (id, name, age) values (9, "Jacqueline Bouvier", 80);`},
 			tc.CommitAll{Message: "made changes"},
-			tc.Query{Query: `alter table people add drip double comment 'tag:` + strconv.Itoa(DripTag) + `';`},
+			tc.Query{Query: `alter table people add drip double;`},
 			tc.Query{Query: `insert into people (id, name, age, drip) values (11, "Selma Bouvier", 40, 8.5);`},
 			tc.CommitAll{Message: "made changes"},
 		},
 		OldTag:            DripTag,
 		NewTag:            DripTagRebased,
 		SelectResultQuery: "select * from people;",
-		ExpectedSchema:    schema.SchemaFromCols(peopleWithDrip),
+		ExpectedSchema:    schema.MustSchemaFromCols(peopleWithDrip),
 		ExpectedRows: []row.Row{
 			newRow(row.TaggedValues{IdTag: types.Int(9), NameTag: types.String("Jacqueline Bouvier"), AgeTag: types.Int(80)}, people),
 			newRow(row.TaggedValues{IdTag: types.Int(11), NameTag: types.String("Selma Bouvier"), AgeTag: types.Int(40), DripTagRebased: types.Float(8.5)}, peopleWithDrip),
@@ -194,14 +195,14 @@ var RebaseTagTests = []RebaseTagTest{
 			tc.Query{Query: createPeopleTable},
 			tc.Query{Query: `insert into people (id, name, age) values (9, "Jacqueline Bouvier", 80);`},
 			tc.CommitAll{Message: "made changes"},
-			tc.Query{Query: `alter table people add drip double comment 'tag:` + strconv.Itoa(DripTag) + `';`},
+			tc.Query{Query: `alter table people add drip double;`},
 			tc.Query{Query: `update people set drip=9.9 where id=9;`},
 			tc.CommitAll{Message: "made changes"},
 		},
 		OldTag:            DripTag,
 		NewTag:            DripTagRebased,
 		SelectResultQuery: "select * from people;",
-		ExpectedSchema:    schema.SchemaFromCols(peopleWithDrip),
+		ExpectedSchema:    schema.MustSchemaFromCols(peopleWithDrip),
 		ExpectedRows: []row.Row{
 			newRow(row.TaggedValues{IdTag: types.Int(9), NameTag: types.String("Jacqueline Bouvier"), AgeTag: types.Int(80), DripTagRebased: types.Float(9.9)}, peopleWithDrip),
 		},
@@ -212,7 +213,7 @@ var RebaseTagTests = []RebaseTagTest{
 			tc.Query{Query: createPeopleTable},
 			tc.Query{Query: `insert into people (id, name, age) values (9, "Jacqueline Bouvier", 80);`},
 			tc.CommitAll{Message: "made changes"},
-			tc.Query{Query: `alter table people add drip double comment 'tag:` + strconv.Itoa(DripTag) + `';`},
+			tc.Query{Query: `alter table people add drip double;`},
 			tc.Query{Query: `insert into people (id, name, age, drip) values (11, "Selma Bouvier", 40, 8.5);`},
 			tc.CommitAll{Message: "made changes"},
 			tc.Query{Query: `update people set drip=9.9 where id=11;`},
@@ -221,7 +222,7 @@ var RebaseTagTests = []RebaseTagTest{
 		OldTag:            DripTag,
 		NewTag:            DripTagRebased,
 		SelectResultQuery: "select * from people;",
-		ExpectedSchema:    schema.SchemaFromCols(peopleWithDrip),
+		ExpectedSchema:    schema.MustSchemaFromCols(peopleWithDrip),
 		ExpectedRows: []row.Row{
 			newRow(row.TaggedValues{IdTag: types.Int(9), NameTag: types.String("Jacqueline Bouvier"), AgeTag: types.Int(80)}, people),
 			newRow(row.TaggedValues{IdTag: types.Int(11), NameTag: types.String("Selma Bouvier"), AgeTag: types.Int(40), DripTagRebased: types.Float(9.9)}, peopleWithDrip),
@@ -233,7 +234,7 @@ var RebaseTagTests = []RebaseTagTest{
 			tc.Query{Query: createPeopleTable},
 			tc.Query{Query: `insert into people (id, name, age) values (9, "Jacqueline Bouvier", 80);`},
 			tc.CommitAll{Message: "made changes"},
-			tc.Query{Query: `alter table people add drip double comment 'tag:` + strconv.Itoa(DripTag) + `';`},
+			tc.Query{Query: `alter table people add drip double;`},
 			tc.Query{Query: `insert into people (id, name, age, drip) values (11, "Selma Bouvier", 40, 8.5);`},
 			tc.CommitAll{Message: "made changes"},
 			tc.Query{Query: `update people set drip=9.9 where id=11;`},
@@ -243,7 +244,7 @@ var RebaseTagTests = []RebaseTagTest{
 		OldTag:            DripTag,
 		NewTag:            DripTagRebased,
 		SelectResultQuery: "select * from people;",
-		ExpectedSchema:    schema.SchemaFromCols(peopleWithDrip),
+		ExpectedSchema:    schema.MustSchemaFromCols(peopleWithDrip),
 		ExpectedRows: []row.Row{
 			newRow(row.TaggedValues{IdTag: types.Int(9), NameTag: types.String("Jacqueline Bouvier"), AgeTag: types.Int(80), DripTagRebased: types.Float(1.1)}, peopleWithDrip),
 			newRow(row.TaggedValues{IdTag: types.Int(11), NameTag: types.String("Selma Bouvier"), AgeTag: types.Int(40), DripTagRebased: types.Float(9.9)}, peopleWithDrip),
@@ -257,7 +258,7 @@ var RebaseTagTests = []RebaseTagTest{
 				(7, "Maggie Simpson", 1),
 				(8, "Milhouse Van Houten", 8);`},
 			tc.CommitAll{Message: "made changes"},
-			tc.Query{Query: `alter table people add drip double comment 'tag:` + strconv.Itoa(DripTag) + `';`},
+			tc.Query{Query: `alter table people add drip double;`},
 			tc.CommitAll{Message: "made changes"},
 			tc.Query{Query: `update people set age=2 where id=7;`},
 			tc.Query{Query: `delete from people where id=8;`},
@@ -267,20 +268,20 @@ var RebaseTagTests = []RebaseTagTest{
 		OldTag:            DripTag,
 		NewTag:            DripTagRebased,
 		SelectResultQuery: "select * from people;",
-		ExpectedSchema:    schema.SchemaFromCols(peopleWithDrip),
+		ExpectedSchema:    schema.MustSchemaFromCols(peopleWithDrip),
 		ExpectedRows: []row.Row{
 			newRow(row.TaggedValues{IdTag: types.Int(7), NameTag: types.String("Maggie Simpson"), AgeTag: types.Int(2)}, people),
 			newRow(row.TaggedValues{IdTag: types.Int(9), NameTag: types.String("Jacqueline Bouvier"), AgeTag: types.Int(80)}, people),
 		},
 	},
-	// https://github.com/liquidata-inc/dolt/issues/773
+	// https://github.com/dolthub/dolt/issues/773
 	/*{
 		Name: "create new column on master, insert to table on other branch, merge",
 		Commands: []tc.Command{
 			tc.Query{Query: createPeopleTable},
 			tc.CommitAll{Message: "made changes"},
 			tc.Branch{BranchName: "newBranch"},
-			tc.Query{Query: `alter table people add drip double comment 'tag:` + strconv.Itoa(DripTag) + `';`},
+			tc.Query{Query: `alter table people add drip double;`},
 			tc.Query{Query: `insert into people (id, name, age, drip) values (11, "Selma Bouvier", 40, 8.5);`},
 			tc.CommitAll{Message: "made changes"},
 			tc.Checkout{BranchName: "newBranch"},
@@ -293,7 +294,7 @@ var RebaseTagTests = []RebaseTagTest{
 		OldTag:            DripTag,
 		NewTag:            DripTagRebased,
 		SelectResultQuery: "select * from people;",
-		ExpectedSchema:    schema.SchemaFromCols(peopleWithDrip),
+		ExpectedSchema:    schschema.MustSchemaFromCols(peopleWithDrip),
 		ExpectedRows: []row.Row{
 			newRow(row.TaggedValues{IdTag: types.Int(9), NameTag: types.String("Jacqueline Bouvier"), AgeTag: types.Int(80)}, people),
 			newRow(row.TaggedValues{IdTag: types.Int(11), NameTag: types.String("Selma Bouvier"), AgeTag: types.Int(40), DripTagRebased: types.Float(8.5)}, peopleWithDrip),
@@ -310,7 +311,7 @@ var RebaseTagTests = []RebaseTagTest{
 				(9, "Jacqueline Bouvier", 80);`},
 			tc.CommitAll{Message: "made changes"},
 			tc.Branch{BranchName: "newBranch"},
-			tc.Query{Query: `alter table people add drip double comment 'tag:` + strconv.Itoa(DripTag) + `';`},
+			tc.Query{Query: `alter table people add drip double;`},
 			tc.Query{Query: `delete from people where id=6;`},
 			tc.Query{Query: `update people set drip=99.9 where id=7;`},
 			tc.Query{Query: `insert into people (id, name, age, drip) values (11, "Selma Bouvier", 40, 8.5);`},
@@ -327,7 +328,7 @@ var RebaseTagTests = []RebaseTagTest{
 		OldTag:            DripTag,
 		NewTag:            DripTagRebased,
 		SelectResultQuery: "select * from people;",
-		ExpectedSchema:    schema.SchemaFromCols(peopleWithDrip),
+		ExpectedSchema:    schema.MustSchemaFromCols(peopleWithDrip),
 		ExpectedRows: []row.Row{
 			newRow(row.TaggedValues{IdTag: types.Int(7), NameTag: types.String("Maggie Simpson"), AgeTag: types.Int(1), DripTagRebased: types.Float(99.9)}, peopleWithDrip),
 			newRow(row.TaggedValues{IdTag: types.Int(9), NameTag: types.String("Jacqueline Bouvier"), AgeTag: types.Int(40)}, people),
@@ -342,7 +343,7 @@ var RebaseTagTests = []RebaseTagTest{
 			tc.CommitAll{Message: "made changes"},
 			tc.Branch{BranchName: "newBranch"},
 			tc.Checkout{BranchName: "newBranch"},
-			tc.Query{Query: `alter table people add drip double comment 'tag:` + strconv.Itoa(DripTag) + `';`},
+			tc.Query{Query: `alter table people add drip double;`},
 			tc.Query{Query: `insert into people (id, name, age, drip) values (11, "Selma Bouvier", 40, 8.5);`},
 			tc.CommitAll{Message: "made changes"},
 			tc.Checkout{BranchName: "master"},
@@ -354,7 +355,7 @@ var RebaseTagTests = []RebaseTagTest{
 		OldTag:            DripTag,
 		NewTag:            DripTagRebased,
 		SelectResultQuery: "select * from people;",
-		ExpectedSchema:    schema.SchemaFromCols(peopleWithDrip),
+		ExpectedSchema:    schema.MustSchemaFromCols(peopleWithDrip),
 		ExpectedRows: []row.Row{
 			newRow(row.TaggedValues{IdTag: types.Int(9), NameTag: types.String("Jacqueline Bouvier"), AgeTag: types.Int(80)}, people),
 			newRow(row.TaggedValues{IdTag: types.Int(11), NameTag: types.String("Selma Bouvier"), AgeTag: types.Int(40), DripTagRebased: types.Float(8.5)}, peopleWithDrip),
@@ -365,7 +366,7 @@ var RebaseTagTests = []RebaseTagTest{
 		Commands: []tc.Command{
 			tc.Query{Query: createPeopleTable},
 			tc.CommitAll{Message: "made changes"},
-			tc.Query{Query: `alter table people add drip double comment 'tag:` + strconv.Itoa(DripTag) + `';`},
+			tc.Query{Query: `alter table people add drip double;`},
 			tc.Query{Query: `insert into people (id, name, age, drip) values (9, "Jacqueline Bouvier", 80, 8.5);`},
 			tc.CommitAll{Message: "made changes"},
 			tc.Branch{BranchName: "newBranch"},
@@ -381,7 +382,7 @@ var RebaseTagTests = []RebaseTagTest{
 		OldTag:            DripTag,
 		NewTag:            DripTagRebased,
 		SelectResultQuery: "select * from people;",
-		ExpectedSchema:    schema.SchemaFromCols(peopleWithDrip),
+		ExpectedSchema:    schema.MustSchemaFromCols(peopleWithDrip),
 		ExpectedRows: []row.Row{
 			newRow(row.TaggedValues{IdTag: types.Int(9), NameTag: types.String("Jacqueline Bouvier"), AgeTag: types.Int(80), DripTagRebased: types.Float(8.5)}, peopleWithDrip),
 			newRow(row.TaggedValues{IdTag: types.Int(10), NameTag: types.String("Patty Bouvier"), AgeTag: types.Int(40), DripTagRebased: types.Float(8.5)}, peopleWithDrip),
@@ -394,7 +395,7 @@ var RebaseTagTests = []RebaseTagTest{
 			tc.Query{Query: createPeopleTable},
 			tc.Query{Query: `insert into people (id, name, age) values (7, "Maggie Simpson", 1);`},
 			tc.CommitAll{Message: "made changes"},
-			tc.Query{Query: `alter table people add drip double comment 'tag:` + strconv.Itoa(DripTag) + `';`},
+			tc.Query{Query: `alter table people add drip double;`},
 			tc.CommitAll{Message: "made changes"},
 			tc.Query{Query: `insert into people (id, name, age) values (9, "Jacqueline Bouvier", 80);`},
 			tc.CommitAll{Message: "made changes"},
@@ -406,7 +407,7 @@ var RebaseTagTests = []RebaseTagTest{
 		OldTag:            DripTag,
 		NewTag:            DripTagRebased,
 		SelectResultQuery: "select * from people;",
-		ExpectedSchema:    schema.SchemaFromCols(people),
+		ExpectedSchema:    schema.MustSchemaFromCols(people),
 		ExpectedRows: []row.Row{
 			newRow(row.TaggedValues{IdTag: types.Int(7), NameTag: types.String("Maggie Simpson"), AgeTag: types.Int(1)}, people),
 		},
@@ -461,7 +462,7 @@ func testRebaseTagHistory(t *testing.T) {
 			(7, "Maggie Simpson", 1);`},
 		tc.CommitAll{Message: "made changes"}, // common ancestor of (newMaster, oldMaster) and (newMaster, other)
 
-		tc.Query{Query: `alter table people add drip double comment 'tag:` + strconv.Itoa(DripTag) + `';`},
+		tc.Query{Query: `alter table people add drip double;`},
 		tc.CommitAll{Message: "made changes"}, // common ancestor of (oldMaster, other)
 
 		tc.Branch{BranchName: "other"},
@@ -484,7 +485,7 @@ func testRebaseTagHistory(t *testing.T) {
 	newMasterCm, err := rebase.TagRebaseForRef(context.Background(), bs[0], dEnv.DoltDB, rebase.TagMapping{"people": map[uint64]uint64{DripTag: DripTagRebased}})
 	require.NoError(t, err)
 
-	expectedSch := schema.SchemaFromCols(peopleWithDrip)
+	expectedSch := schema.MustSchemaFromCols(peopleWithDrip)
 	rebasedRoot, _ := newMasterCm.GetRootValue()
 	checkSchema(t, rebasedRoot, "people", expectedSch)
 	checkRows(t, dEnv, rebasedRoot, "people", expectedSch, "select * from people;", []row.Row{
@@ -527,19 +528,23 @@ func checkSchema(t *testing.T, r *doltdb.RootValue, tableName string, expectedSc
 	require.NoError(t, err)
 	sch, err := tbl.GetSchema(context.Background())
 	require.NoError(t, err)
-	eq, err := schema.SchemasAreEqual(sch, expectedSch)
-	require.NoError(t, err)
-	require.True(t, eq)
+	require.Equal(t, expectedSch.GetAllCols().Size(), sch.GetAllCols().Size())
+	cols := sch.GetAllCols().GetColumns()
+	for i, expectedCol := range expectedSch.GetAllCols().GetColumns() {
+		col := cols[i]
+		col.Tag = expectedCol.Tag
+		assert.Equal(t, expectedCol, col)
+	}
 }
 
 func checkRows(t *testing.T, dEnv *env.DoltEnv, root *doltdb.RootValue, tableName string, sch schema.Schema, selectQuery string, expectedRows []row.Row) {
-	sqlDb := dsqle.NewDatabase("dolt", dEnv.DoltDB, dEnv.RepoState, dEnv.RepoStateWriter())
+	sqlDb := dsqle.NewDatabase("dolt", dEnv.DbData())
 	engine, sqlCtx, err := dsqle.NewTestEngine(context.Background(), sqlDb, root)
 	require.NoError(t, err)
 
 	s, rowIter, err := engine.Query(sqlCtx, selectQuery)
 	require.NoError(t, err)
-	_, err = dsqle.SqlSchemaToDoltSchema(context.Background(), root, tableName, s)
+	_, err = sqlutil.ToDoltSchema(context.Background(), root, tableName, s)
 	require.NoError(t, err)
 
 	actualRows := []row.Row{}
@@ -549,7 +554,7 @@ func checkRows(t *testing.T, dEnv *env.DoltEnv, root *doltdb.RootValue, tableNam
 			break
 		}
 		require.NoError(t, err)
-		rr, err := dsqle.SqlRowToDoltRow(root.VRW().Format(), r, sch)
+		rr, err := sqlutil.SqlRowToDoltRow(context.Background(), root.VRW(), r, sch)
 		require.NoError(t, err)
 		actualRows = append(actualRows, rr)
 	}

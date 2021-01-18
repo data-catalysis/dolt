@@ -61,15 +61,15 @@ teardown() {
     dolt checkout init
     run dolt schema show abc
     [ "$status" -eq 0 ]
-    [[ "${lines[0]}" =~ "abc @ working" ]] || false
-    [[ "${lines[1]}" =~ "CREATE TABLE \`abc\` (" ]] || false
-    [[ "${lines[2]}" =~ " \`pk\` BIGINT NOT NULL COMMENT " ]] || false
-    [[ "${lines[3]}" =~ " \`a\` LONGTEXT COMMENT " ]] || false
-    [[ "${lines[4]}" =~ " \`b\` DOUBLE COMMENT " ]] || false
-    [[ "${lines[5]}" =~ " \`w\` BIGINT COMMENT " ]] || false
-    [[ "${lines[6]}" =~ " \`x\` BIGINT COMMENT " ]] || false
-    [[ "${lines[7]}" =~ " PRIMARY KEY (\`pk\`)" ]] || false
-    [[ "${lines[8]}" =~ ");" ]] || false
+    output=`echo $output | tr '[:upper:]' '[:lower:]'` # lowercase the output
+    [[ "${output}" =~ "abc @ working" ]] || false
+    [[ "${output}" =~ "create table \`abc\` (" ]] || false
+    [[ "${output}" =~ "\`pk\` bigint not null" ]] || false
+    [[ "${output}" =~ "\`a\` longtext" ]] || false
+    [[ "${output}" =~ "\`b\` double" ]] || false
+    [[ "${output}" =~ "\`w\` bigint" ]] || false
+    [[ "${output}" =~ "\`x\` bigint" ]] || false
+    [[ "${output}" =~ "primary key (\`pk\`)" ]] || false
 }
 
 @test "dolt sql 'select * from abc' on branch init" {
@@ -94,15 +94,15 @@ teardown() {
 
     run dolt schema show abc
     [ "$status" -eq 0 ]
-    [[ "${lines[0]}" =~ "abc @ working" ]] || false
-    [[ "${lines[1]}" =~ "CREATE TABLE \`abc\` (" ]] || false
-    [[ "${lines[2]}" =~ "\`pk\` BIGINT NOT NULL COMMENT " ]] || false
-    [[ "${lines[3]}" =~ "\`a\` LONGTEXT COMMENT " ]] || false
-    [[ "${lines[4]}" =~ "\`b\` DOUBLE COMMENT " ]] || false
-    [[ "${lines[5]}" =~ "\`x\` BIGINT COMMENT " ]] || false
-    [[ "${lines[6]}" =~ "\`y\` BIGINT COMMENT " ]] || false
-    [[ "${lines[7]}" =~ "PRIMARY KEY (\`pk\`)" ]] || false
-    [[ "${lines[8]}" =~ ");" ]] || false
+    output=`echo $output | tr '[:upper:]' '[:lower:]'` # lowercase the output
+    [[ "${output}" =~ "abc @ working" ]] || false
+    [[ "${output}" =~ "create table \`abc\` (" ]] || false
+    [[ "${output}" =~ "\`pk\` bigint not null" ]] || false
+    [[ "${output}" =~ "\`a\` longtext" ]] || false
+    [[ "${output}" =~ "\`b\` double" ]] || false
+    [[ "${output}" =~ "\`x\` bigint" ]] || false
+    [[ "${output}" =~ "\`y\` bigint" ]] || false
+    [[ "${output}" =~ "primary key (\`pk\`)" ]] || false
 }
 
 
@@ -112,11 +112,11 @@ teardown() {
 
     run dolt sql -q 'select * from abc;'
     [ "$status" -eq 0 ]
-    [[ "${lines[1]}" =~ "| pk | a    | b   | x | y      |" ]] || false
-    [[ "${lines[2]}" =~ "+----+------+-----+---+--------+" ]] || false
-    [[ "${lines[3]}" =~ "| 0  | asdf | 1.1 | 0 | <NULL> |" ]] || false
-    [[ "${lines[4]}" =~ "| 2  | asdf | 1.1 | 0 | <NULL> |" ]] || false
-    [[ "${lines[5]}" =~ "| 3  | data | 1.1 | 0 | <NULL> |" ]] || false
+    [[ "${lines[1]}" =~ "| pk | a    | b   | x | y   |" ]] || false
+    [[ "${lines[2]}" =~ "+----+------+-----+---+-----+" ]] || false
+    [[ "${lines[3]}" =~ "| 0  | asdf | 1.1 | 0 | 121 |" ]] || false
+    [[ "${lines[4]}" =~ "| 2  | asdf | 1.1 | 0 | 121 |" ]] || false
+    [[ "${lines[5]}" =~ "| 3  | data | 1.1 | 0 | 121 |" ]] || false
 }
 
 @test "dolt schema show on branch other" {
@@ -126,15 +126,16 @@ teardown() {
     dolt checkout other
     run dolt schema show abc
     [ "$status" -eq 0 ]
-    [[ "${lines[0]}" =~ "abc @ working" ]] || false
-    [[ "${lines[1]}" =~ "CREATE TABLE \`abc\` (" ]] || false
-    [[ "${lines[2]}" =~ "\`pk\` BIGINT NOT NULL COMMENT " ]] || false
-    [[ "${lines[3]}" =~ "\`a\` LONGTEXT COMMENT " ]] || false
-    [[ "${lines[4]}" =~ "\`b\` DOUBLE COMMENT " ]] || false
-    [[ "${lines[5]}" =~ "\`w\` BIGINT COMMENT " ]] || false
-    [[ "${lines[6]}" =~ "\`z\` BIGINT COMMENT " ]] || false
-    [[ "${lines[7]}" =~ "PRIMARY KEY (\`pk\`)" ]] || false
-    [[ "${lines[8]}" =~ ");" ]] || false
+    echo $output
+    output=`echo $output | tr '[:upper:]' '[:lower:]'` # lowercase the output
+    [[ "${output}" =~ "abc @ working" ]] || false
+    [[ "${output}" =~ "create table \`abc\` (" ]] || false
+    [[ "${output}" =~ "\`pk\` bigint not null" ]] || false
+    [[ "${output}" =~ "\`a\` longtext" ]] || false
+    [[ "${output}" =~ "\`b\` double" ]] || false
+    [[ "${output}" =~ "\`w\` bigint" ]] || false
+    [[ "${output}" =~ "\`z\` bigint" ]] || false
+    [[ "${output}" =~ "primary key (\`pk\`)" ]] || false
 }
 
 @test "dolt sql 'select * from abc' on branch other" {
@@ -144,11 +145,11 @@ teardown() {
     dolt checkout other
     run dolt sql -q 'select * from abc;'
     [ "$status" -eq 0 ]
-    [[ "${lines[1]}" =~ "| pk | a    | b   | w | z      |" ]] || false
-    [[ "${lines[2]}" =~ "+----+------+-----+---+--------+" ]] || false
-    [[ "${lines[3]}" =~ "| 0  | asdf | 1.1 | 0 | <NULL> |" ]] || false
-    [[ "${lines[4]}" =~ "| 1  | asdf | 1.1 | 0 | <NULL> |" ]] || false
-    [[ "${lines[5]}" =~ "| 4  | data | 1.1 | 0 | <NULL> |" ]] || false
+    [[ "${lines[1]}" =~ "| pk | a    | b   | w | z   |" ]] || false
+    [[ "${lines[2]}" =~ "+----+------+-----+---+-----+" ]] || false
+    [[ "${lines[3]}" =~ "| 0  | asdf | 1.1 | 0 | 122 |" ]] || false
+    [[ "${lines[4]}" =~ "| 1  | asdf | 1.1 | 0 | 122 |" ]] || false
+    [[ "${lines[5]}" =~ "| 4  | data | 1.1 | 0 | 122 |" ]] || false
 
     dolt checkout master
 }
@@ -157,7 +158,7 @@ teardown() {
     # this will fail for older dolt versions but BATS will swallow the error
     run dolt migrate
 
-    run dolt table import -c abc2 abc.csv
+    run dolt table import -c -pk=pk abc2 abc.csv
     [ "$status" -eq 0 ]
     [[ "$output" =~ "Import completed successfully." ]] || false
 
@@ -176,4 +177,20 @@ teardown() {
     [[ "$output" =~ "| Table |" ]] || false
     [[ "$output" =~ "+-------+" ]] || false
     [[ "$output" =~ "+-------+" ]] || false
+}
+
+@test "dolt_schemas" {
+    # this will fail for older dolt versions but BATS will swallow the error
+    run dolt migrate
+
+    run dolt sql -q "select * from dolt_schemas"
+    [ "$status" -eq 0 ]
+    [[ "${lines[1]}" =~ "| type | name  | fragment             |" ]] || false
+    [[ "${lines[2]}" =~ "+------+-------+----------------------+" ]] || false
+    [[ "${lines[3]}" =~ "| view | view1 | SELECT 2+2 FROM dual |" ]] || false
+    run dolt sql -q 'select * from view1'
+    [ "$status" -eq 0 ]
+    [[ "${lines[1]}" =~ "| 2 + 2 |" ]] || false
+    [[ "${lines[2]}" =~ "+-------+" ]] || false
+    [[ "${lines[3]}" =~ "| 4     |" ]] || false
 }

@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,9 +18,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/stretchr/testify/require"
+
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 func mustValue(v types.Value, err error) types.Value {
@@ -57,13 +59,15 @@ func TestParseKeyValues(t *testing.T) {
 		schema.NewColumn(mnColName, mnColTag, types.StringKind, true),
 	)
 
-	sch := schema.SchemaFromCols(testKeyColColl)
+	sch, err := schema.SchemaFromCols(testKeyColColl)
+	require.NoError(t, err)
 
 	singleKeyColColl, _ := schema.NewColCollection(
 		schema.NewColumn(lnColName, lnColTag, types.StringKind, true),
 	)
 
-	singleKeySch := schema.SchemaFromCols(singleKeyColColl)
+	singleKeySch, err := schema.SchemaFromCols(singleKeyColColl)
+	require.NoError(t, err)
 
 	tests := []struct {
 		sch          schema.Schema
@@ -139,7 +143,8 @@ func TestParseKeyValues(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		actual, err := ParseKeyValues(types.Format_7_18, test.sch, test.args)
+		vrw := types.NewMemoryValueStore()
+		actual, err := ParseKeyValues(ctx, vrw, test.sch, test.args)
 
 		if test.expectErr != (err != nil) {
 			t.Error(test.args, "produced an unexpected error")

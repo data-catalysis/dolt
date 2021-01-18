@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -120,6 +120,7 @@ func MarshalJSON(dr DoltRef) ([]byte, error) {
 }
 
 // Parse will parse ref strings and return a DoltRef or an error for refs that can't be parsed.
+// refs without a RefType prefix ("refs/heads/", "refs/tags/", etc) are assumed to be branches)
 func Parse(str string) (DoltRef, error) {
 	if !IsRef(str) {
 		if strings.HasPrefix(str, remotesPrefix) {

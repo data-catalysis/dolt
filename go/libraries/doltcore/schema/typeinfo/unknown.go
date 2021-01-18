@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,11 +15,12 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 type unknownImpl struct{}
@@ -33,8 +34,13 @@ func (ti *unknownImpl) ConvertNomsValueToValue(types.Value) (interface{}, error)
 	return nil, fmt.Errorf(`"Unknown" cannot convert any Noms value to a go value`)
 }
 
+// ReadFrom reads a go value from a noms types.CodecReader directly
+func (ti *unknownImpl) ReadFrom(_ *types.NomsBinFormat, reader types.CodecReader) (interface{}, error) {
+	return nil, fmt.Errorf(`"Unknown" cannot read any Noms value to a go value`)
+}
+
 // ConvertValueToNomsValue implements TypeInfo interface.
-func (ti *unknownImpl) ConvertValueToNomsValue(interface{}) (types.Value, error) {
+func (ti *unknownImpl) ConvertValueToNomsValue(context.Context, types.ValueReadWriter, interface{}) (types.Value, error) {
 	return nil, fmt.Errorf(`"Unknown" cannot convert any go value to a Noms value`)
 }
 
@@ -69,8 +75,13 @@ func (ti *unknownImpl) NomsKind() types.NomsKind {
 }
 
 // ParseValue implements TypeInfo interface.
-func (ti *unknownImpl) ParseValue(*string) (types.Value, error) {
+func (ti *unknownImpl) ParseValue(context.Context, types.ValueReadWriter, *string) (types.Value, error) {
 	return nil, fmt.Errorf(`"Unknown" cannot convert any strings to a Noms value`)
+}
+
+// Promote implements TypeInfo interface.
+func (ti *unknownImpl) Promote() TypeInfo {
+	return ti
 }
 
 // String implements TypeInfo interface.

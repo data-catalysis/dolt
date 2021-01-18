@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -22,7 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 func TestYearConvertNomsValueToValue(t *testing.T) {
@@ -50,11 +51,6 @@ func TestYearConvertNomsValueToValue(t *testing.T) {
 			2155,
 			2155,
 			false,
-		},
-		{
-			3000,
-			0,
-			true,
 		},
 	}
 
@@ -106,7 +102,8 @@ func TestYearConvertValueToNomsValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, YearType.String(), test.input), func(t *testing.T) {
-			output, err := YearType.ConvertValueToNomsValue(test.input)
+			vrw := types.NewMemoryValueStore()
+			output, err := YearType.ConvertValueToNomsValue(context.Background(), vrw, test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)
@@ -124,7 +121,7 @@ func TestYearFormatValue(t *testing.T) {
 		expectedErr bool
 	}{
 		{
-			1,
+			2001,
 			"2001",
 			false,
 		},
@@ -139,14 +136,9 @@ func TestYearFormatValue(t *testing.T) {
 			false,
 		},
 		{
-			89,
+			1989,
 			"1989",
 			false,
-		},
-		{
-			3000,
-			"",
-			true,
 		},
 	}
 
@@ -198,7 +190,8 @@ func TestYearParseValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, YearType.String(), test.input), func(t *testing.T) {
-			output, err := YearType.ParseValue(&test.input)
+			vrw := types.NewMemoryValueStore()
+			output, err := YearType.ParseValue(context.Background(), vrw, &test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)

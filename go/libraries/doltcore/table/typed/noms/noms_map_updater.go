@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,11 +18,11 @@ import (
 	"context"
 	"errors"
 
-	"github.com/liquidata-inc/dolt/go/store/atomicerr"
+	"github.com/dolthub/dolt/go/store/atomicerr"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 type StatsCB func(stats types.AppliedEditStats)
@@ -162,6 +162,6 @@ func (nmu *NomsMapUpdater) Close(ctx context.Context) error {
 }
 
 // GetMap retrieves the resulting types.Map once close is called
-func (nmu *NomsMapUpdater) GetMap() *types.Map {
-	return &nmu.result.m
+func (nmu *NomsMapUpdater) GetMap() types.Map {
+	return nmu.result.m
 }

@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,15 +15,16 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 func TestVarStringConvertNomsValueToValue(t *testing.T) {
@@ -56,18 +57,6 @@ func TestVarStringConvertNomsValueToValue(t *testing.T) {
 			"  This is a sentence.  ",
 			"  This is a sentence.  ",
 			false,
-		},
-		{
-			generateVarStringType(t, 2, false),
-			"yay",
-			"",
-			true,
-		},
-		{
-			generateVarStringType(t, 2, true),
-			"yey",
-			"",
-			true,
 		},
 	}
 
@@ -137,7 +126,8 @@ func TestVarStringConvertValueToNomsValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, test.typ.String(), test.input), func(t *testing.T) {
-			output, err := test.typ.ConvertValueToNomsValue(test.input)
+			vrw := types.NewMemoryValueStore()
+			output, err := test.typ.ConvertValueToNomsValue(context.Background(), vrw, test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)
@@ -178,18 +168,6 @@ func TestVarStringFormatValue(t *testing.T) {
 			"  This is a sentence.  ",
 			"  This is a sentence.  ",
 			false,
-		},
-		{
-			generateVarStringType(t, 2, false),
-			"yay",
-			"",
-			true,
-		},
-		{
-			generateVarStringType(t, 2, true),
-			"yey",
-			"",
-			true,
 		},
 	}
 
@@ -253,7 +231,8 @@ func TestVarStringParseValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, test.typ.String(), test.input), func(t *testing.T) {
-			output, err := test.typ.ParseValue(&test.input)
+			vrw := types.NewMemoryValueStore()
+			output, err := test.typ.ParseValue(context.Background(), vrw, &test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)

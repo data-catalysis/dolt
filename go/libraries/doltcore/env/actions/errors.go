@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ package actions
 import (
 	"strings"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/diff"
+	"github.com/dolthub/dolt/go/libraries/doltcore/diff"
 )
 
 type tblErrorType string
@@ -42,7 +42,7 @@ func NewTblInConflictError(tbls []string) TblError {
 }
 
 func (te TblError) Error() string {
-	return "error: the tables " + strings.Join(te.tables, ", ") + string(te.tblErrType)
+	return "error: the table(s) " + strings.Join(te.tables, ", ") + " " + string(te.tblErrType)
 }
 
 func getTblErrType(err error) tblErrorType {

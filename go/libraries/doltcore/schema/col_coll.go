@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ var ErrColNotFound = errors.New("column not found")
 // different type or tag
 var ErrColNameCollision = errors.New("two different columns with the same name exist")
 
-// ErrNoPrimaryKeyColumns is an error that is returned when wo
+// ErrNoPrimaryKeyColumns is an error that is returned when no primary key columns are found
 var ErrNoPrimaryKeyColumns = errors.New("no primary key columns")
 
 var EmptyColColl = &ColCollection{
@@ -41,6 +41,7 @@ var EmptyColColl = &ColCollection{
 	map[uint64]Column{},
 	map[string]Column{},
 	map[string]Column{},
+	map[uint64]int{},
 }
 
 // ColCollection is a collection of columns. As a stand-alone collection, all columns in the collection must have unique
@@ -58,6 +59,8 @@ type ColCollection struct {
 	NameToCol map[string]Column
 	// LowerNameToCol is a map from lower-cased name to column
 	LowerNameToCol map[string]Column
+	// TagToIdx is a map from a tag to the column index
+	TagToIdx map[uint64]int
 }
 
 // NewColCollection creates a new collection from a list of columns. All columns must have unique tags or this method
@@ -71,12 +74,14 @@ func NewColCollection(cols ...Column) (*ColCollection, error) {
 	tagToCol := make(map[uint64]Column, len(cols))
 	nameToCol := make(map[string]Column, len(cols))
 	lowerNameToCol := make(map[string]Column, len(cols))
+	tagToIdx := make(map[uint64]int, len(cols))
 
 	var uniqueCols []Column
 	for i, col := range cols {
 		if val, ok := tagToCol[col.Tag]; !ok {
 			uniqueCols = append(uniqueCols, col)
 			tagToCol[col.Tag] = col
+			tagToIdx[col.Tag] = i
 			tags = append(tags, col.Tag)
 			sortedTags = append(sortedTags, col.Tag)
 			nameToCol[col.Name] = cols[i]
@@ -100,6 +105,7 @@ func NewColCollection(cols ...Column) (*ColCollection, error) {
 		TagToCol:       tagToCol,
 		NameToCol:      nameToCol,
 		LowerNameToCol: lowerNameToCol,
+		TagToIdx:       tagToIdx,
 	}, nil
 }
 
@@ -108,6 +114,10 @@ func (cc *ColCollection) GetColumns() []Column {
 	colsCopy := make([]Column, len(cc.cols))
 	copy(colsCopy, cc.cols)
 	return colsCopy
+}
+
+func (cc *ColCollection) GetAtIndex(i int) Column {
+	return cc.cols[i]
 }
 
 // GetColumnNames returns a list of names of the columns.

@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,17 +21,17 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema/encoding"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/typed/json"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/typed/noms"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/untyped/csv"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/filesys"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/typed/json"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/untyped/csv"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 const (
@@ -113,7 +113,7 @@ var imt *table.InMemTable
 var imtRows []row.Row
 
 func init() {
-	fakeSchema = schema.SchemaFromCols(fakeFields)
+	fakeSchema = schema.MustSchemaFromCols(fakeFields)
 
 	imtRows = []row.Row{
 		mustRow(row.New(types.Format_7_18, fakeSchema, row.TaggedValues{0: types.String("a"), 1: types.String("1")})),
@@ -133,7 +133,7 @@ func TestExists(t *testing.T) {
 		//NewDataLocation("file.nbf", ""),
 	}
 
-	ddb, root, fs := createRootAndFS()
+	_, root, fs := createRootAndFS()
 
 	for _, loc := range testLocations {
 		t.Run(loc.String(), func(t *testing.T) {
@@ -144,12 +144,8 @@ func TestExists(t *testing.T) {
 			}
 
 			if tableVal, isTable := loc.(TableDataLocation); isTable {
-				schVal, _ := encoding.MarshalSchemaAsNomsValue(context.Background(), ddb.ValueReadWriter(), fakeSchema)
-				m, err := types.NewMap(context.Background(), ddb.ValueReadWriter())
-				assert.NoError(t, err)
-				tbl, err := doltdb.NewTable(context.Background(), ddb.ValueReadWriter(), schVal, m, nil)
-				assert.NoError(t, err)
-				root, err = root.PutTable(context.Background(), tableVal.Name, tbl)
+				var err error
+				root, err = root.CreateEmptyTable(context.Background(), tableVal.Name, fakeSchema)
 				assert.NoError(t, err)
 			} else if fileVal, isFile := loc.(FileDataLocation); isFile {
 				err := fs.WriteFile(fileVal.Path, []byte("test"))
@@ -185,14 +181,16 @@ func TestCreateRdWr(t *testing.T) {
 		expectedRdT reflect.Type
 		expectedWrT reflect.Type
 	}{
-		{NewDataLocation(testTableName, ""), reflect.TypeOf((*noms.NomsMapReader)(nil)).Elem(), reflect.TypeOf((*tableEditorWriteCloser)(nil)).Elem()},
 		{NewDataLocation("file.csv", ""), reflect.TypeOf((*csv.CSVReader)(nil)).Elem(), reflect.TypeOf((*csv.CSVWriter)(nil)).Elem()},
 		{NewDataLocation("file.psv", ""), reflect.TypeOf((*csv.CSVReader)(nil)).Elem(), reflect.TypeOf((*csv.CSVWriter)(nil)).Elem()},
 		{NewDataLocation("file.json", ""), reflect.TypeOf((*json.JSONReader)(nil)).Elem(), reflect.TypeOf((*json.JSONWriter)(nil)).Elem()},
 		//{NewDataLocation("file.nbf", ""), reflect.TypeOf((*nbf.NBFReader)(nil)).Elem(), reflect.TypeOf((*nbf.NBFWriter)(nil)).Elem()},
 	}
 
-	_, root, fs := createRootAndFS()
+	dEnv := dtestutils.CreateTestEnv()
+	root, err := dEnv.WorkingRoot(context.Background())
+	require.NoError(t, err)
+	dEnv.FS.WriteFile(testSchemaFileName, []byte(testSchema))
 
 	mvOpts := &testDataMoverOptions{}
 
@@ -201,7 +199,7 @@ func TestCreateRdWr(t *testing.T) {
 
 		loc := test.dl
 
-		wr, err := loc.NewCreatingWriter(context.Background(), mvOpts, root, fs, true, fakeSchema, nil)
+		wr, err := loc.NewCreatingWriter(context.Background(), mvOpts, dEnv, root, true, fakeSchema, nil, true)
 
 		if err != nil {
 			t.Fatal("Unexpected error creating writer.", err)
@@ -225,7 +223,7 @@ func TestCreateRdWr(t *testing.T) {
 			assert.NoError(t, err)
 		}
 
-		rd, _, err := loc.NewReader(context.Background(), root, fs, JSONOptions{TableName: testTableName, SchFile: testSchemaFileName})
+		rd, _, err := loc.NewReader(context.Background(), root, dEnv.FS, JSONOptions{TableName: testTableName, SchFile: testSchemaFileName})
 
 		if err != nil {
 			t.Fatal("Unexpected error creating writer", err)

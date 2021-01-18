@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,11 +22,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema/typeinfo"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/filesys"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema/typeinfo"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 func TestReader(t *testing.T) {
@@ -73,9 +73,11 @@ func TestReader(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	sch := schema.SchemaFromCols(colColl)
+	sch, err := schema.SchemaFromCols(colColl)
+	require.NoError(t, err)
 
-	reader, err := OpenJSONReader(types.Format_LD_1, "file.json", fs, sch)
+	vrw := types.NewMemoryValueStore()
+	reader, err := OpenJSONReader(vrw, "file.json", fs, sch)
 	require.NoError(t, err)
 
 	verifySchema, err := reader.VerifySchema(sch)
@@ -152,9 +154,11 @@ func TestReaderBadJson(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	sch := schema.SchemaFromCols(colColl)
+	sch, err := schema.SchemaFromCols(colColl)
+	require.NoError(t, err)
 
-	reader, err := OpenJSONReader(types.Format_LD_1, "file.json", fs, sch)
+	vrw := types.NewMemoryValueStore()
+	reader, err := OpenJSONReader(vrw, "file.json", fs, sch)
 	require.NoError(t, err)
 
 	err = nil

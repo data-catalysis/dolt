@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,11 +19,13 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema/encoding"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/editor"
+
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema/encoding"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 // ModifyColumn modifies the column with the name given, replacing it with the new definition provided. A column with
@@ -33,7 +35,6 @@ func ModifyColumn(
 	tbl *doltdb.Table,
 	existingCol schema.Column,
 	newCol schema.Column,
-	defaultVal types.Value,
 	order *ColumnOrder,
 ) (*doltdb.Table, error) {
 
@@ -42,7 +43,7 @@ func ModifyColumn(
 		return nil, err
 	}
 
-	if err := validateModifyColumn(ctx, tbl, existingCol, newCol, defaultVal); err != nil {
+	if err := validateModifyColumn(ctx, tbl, existingCol, newCol); err != nil {
 		return nil, err
 	}
 
@@ -64,7 +65,7 @@ func ModifyColumn(
 	if !newCol.TypeInfo.Equals(existingCol.TypeInfo) ||
 		newCol.IsNullable() != existingCol.IsNullable() {
 		for _, index := range sch.Indexes().IndexesWithTag(existingCol.Tag) {
-			rebuiltIndexData, err := updatedTable.RebuildIndexRowData(ctx, index.Name())
+			rebuiltIndexData, err := editor.RebuildIndex(ctx, updatedTable, index.Name())
 			if err != nil {
 				return nil, err
 			}
@@ -79,7 +80,7 @@ func ModifyColumn(
 }
 
 // validateModifyColumn returns an error if the column as specified cannot be added to the schema given.
-func validateModifyColumn(ctx context.Context, tbl *doltdb.Table, existingCol schema.Column, modifiedCol schema.Column, defaultVal types.Value) error {
+func validateModifyColumn(ctx context.Context, tbl *doltdb.Table, existingCol schema.Column, modifiedCol schema.Column) error {
 	sch, err := tbl.GetSchema(ctx)
 	if err != nil {
 		return err
@@ -102,10 +103,6 @@ func validateModifyColumn(ctx context.Context, tbl *doltdb.Table, existingCol sc
 
 	if err != nil {
 		return err
-	}
-
-	if !types.IsNull(defaultVal) && defaultVal.Kind() != modifiedCol.Kind {
-		return fmt.Errorf("Type of default value (%v) doesn't match type of column (%v)", types.KindToString[defaultVal.Kind()], types.KindToString[modifiedCol.Kind])
 	}
 
 	return nil
@@ -150,7 +147,7 @@ func updateTableWithModifiedColumn(ctx context.Context, tbl *doltdb.Table, newSc
 		return nil, err
 	}
 
-	return doltdb.NewTable(ctx, vrw, newSchemaVal, rowData, &indexData)
+	return doltdb.NewTable(ctx, vrw, newSchemaVal, rowData, indexData)
 }
 
 // replaceColumnInSchema replaces the column with the name given with its new definition, optionally reordering it.
@@ -200,7 +197,10 @@ func replaceColumnInSchema(sch schema.Schema, oldCol schema.Column, newCol schem
 		return nil, err
 	}
 
-	newSch := schema.SchemaFromCols(collection)
+	newSch, err := schema.SchemaFromCols(collection)
+	if err != nil {
+		return nil, err
+	}
 	newSch.Indexes().AddIndex(sch.Indexes().AllIndexes()...)
 	return newSch, nil
 }

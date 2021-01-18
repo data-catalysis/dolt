@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strconv"
@@ -23,7 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 func TestIntConvertNomsValueToValue(t *testing.T) {
@@ -62,24 +63,6 @@ func TestIntConvertNomsValueToValue(t *testing.T) {
 			math.MaxInt64,
 			int64(math.MaxInt64),
 			false,
-		},
-		{
-			Int8Type,
-			-200,
-			0,
-			true,
-		},
-		{
-			Int32Type,
-			math.MaxInt64,
-			0,
-			true,
-		},
-		{
-			Int24Type,
-			1 << 25,
-			0,
-			true,
 		},
 	}
 
@@ -143,7 +126,8 @@ func TestIntConvertValueToNomsValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, test.typ.String(), test.input), func(t *testing.T) {
-			output, err := test.typ.ConvertValueToNomsValue(test.input)
+			vrw := types.NewMemoryValueStore()
+			output, err := test.typ.ConvertValueToNomsValue(context.Background(), vrw, test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)
@@ -190,18 +174,6 @@ func TestIntFormatValue(t *testing.T) {
 			math.MaxInt64,
 			strconv.FormatInt(math.MaxInt64, 10),
 			false,
-		},
-		{
-			Int32Type,
-			math.MaxInt64,
-			"",
-			true,
-		},
-		{
-			Int24Type,
-			1 << 25,
-			"",
-			true,
 		},
 	}
 
@@ -265,7 +237,8 @@ func TestIntParseValue(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf(`%v %v`, test.typ.String(), test.input), func(t *testing.T) {
-			output, err := test.typ.ParseValue(&test.input)
+			vrw := types.NewMemoryValueStore()
+			output, err := test.typ.ParseValue(context.Background(), vrw, &test.input)
 			if !test.expectedErr {
 				require.NoError(t, err)
 				assert.Equal(t, test.output, output)

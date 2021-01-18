@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,15 +15,16 @@
 package typeinfo
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
 	"unicode"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
-	"github.com/liquidata-inc/vitess/go/sqltypes"
+	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/dolthub/vitess/go/sqltypes"
 
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 const (
@@ -83,17 +84,9 @@ func CreateVarStringTypeFromParams(params map[string]string) (TypeInfo, error) {
 // ConvertNomsValueToValue implements TypeInfo interface.
 func (ti *varStringType) ConvertNomsValueToValue(v types.Value) (interface{}, error) {
 	if val, ok := v.(types.String); ok {
-		strVal, err := ti.sqlStringType.Convert(string(val))
-		if err != nil {
-			return nil, err
-		}
-		res, ok := strVal.(string)
-		if !ok {
-			return nil, fmt.Errorf(`"%v" has unexpectedly encountered a value of type "%T" from embedded type`, ti.String(), v)
-		}
+		res := string(val)
 		// As per the MySQL documentation, trailing spaces are removed when retrieved for CHAR types only.
-		// go-mysql-server does not currently have a concept of storage nor retrieval for its types, thus it must be
-		// implemented here. This function is used to retrieve dolt values, hence its inclusion here and not elsewhere.
+		// This function is used to retrieve dolt values, hence its inclusion here and not elsewhere.
 		// https://dev.mysql.com/doc/refman/8.0/en/char.html
 		if ti.sqlStringType.Type() == sqltypes.Char {
 			res = strings.TrimRightFunc(res, unicode.IsSpace)
@@ -106,8 +99,29 @@ func (ti *varStringType) ConvertNomsValueToValue(v types.Value) (interface{}, er
 	return nil, fmt.Errorf(`"%v" cannot convert NomsKind "%v" to a value`, ti.String(), v.Kind())
 }
 
+// ReadFrom reads a go value from a noms types.CodecReader directly
+func (ti *varStringType) ReadFrom(_ *types.NomsBinFormat, reader types.CodecReader) (interface{}, error) {
+	k := reader.ReadKind()
+	switch k {
+	case types.StringKind:
+		val := reader.ReadString()
+		// As per the MySQL documentation, trailing spaces are removed when retrieved for CHAR types only.
+		// This function is used to retrieve dolt values, hence its inclusion here and not elsewhere.
+		// https://dev.mysql.com/doc/refman/8.0/en/char.html
+		if ti.sqlStringType.Type() == sqltypes.Char {
+			val = strings.TrimRightFunc(val, unicode.IsSpace)
+		}
+		return val, nil
+
+	case types.NullKind:
+		return nil, nil
+	}
+
+	return nil, fmt.Errorf(`"%v" cannot convert NomsKind "%v" to a value`, ti.String(), k)
+}
+
 // ConvertValueToNomsValue implements TypeInfo interface.
-func (ti *varStringType) ConvertValueToNomsValue(v interface{}) (types.Value, error) {
+func (ti *varStringType) ConvertValueToNomsValue(ctx context.Context, vrw types.ValueReadWriter, v interface{}) (types.Value, error) {
 	if v == nil {
 		return types.NullValue, nil
 	}
@@ -179,8 +193,17 @@ func (ti *varStringType) GetTypeParams() map[string]string {
 
 // IsValid implements TypeInfo interface.
 func (ti *varStringType) IsValid(v types.Value) bool {
-	_, err := ti.ConvertNomsValueToValue(v)
-	return err == nil
+	if val, ok := v.(types.String); ok {
+		_, err := ti.sqlStringType.Convert(string(val))
+		if err != nil {
+			return false
+		}
+		return true
+	}
+	if _, ok := v.(types.Null); ok || v == nil {
+		return true
+	}
+	return false
 }
 
 // NomsKind implements TypeInfo interface.
@@ -189,11 +212,16 @@ func (ti *varStringType) NomsKind() types.NomsKind {
 }
 
 // ParseValue implements TypeInfo interface.
-func (ti *varStringType) ParseValue(str *string) (types.Value, error) {
+func (ti *varStringType) ParseValue(ctx context.Context, vrw types.ValueReadWriter, str *string) (types.Value, error) {
 	if str == nil {
 		return types.NullValue, nil
 	}
-	return ti.ConvertValueToNomsValue(*str)
+	return ti.ConvertValueToNomsValue(context.Background(), nil, *str)
+}
+
+// Promote implements TypeInfo interface.
+func (ti *varStringType) Promote() TypeInfo {
+	return &varStringType{ti.sqlStringType.Promote().(sql.StringType)}
 }
 
 // String implements TypeInfo interface.

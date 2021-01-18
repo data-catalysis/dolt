@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,20 +18,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"strings"
 	"time"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/dbfactory"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/ref"
-	"github.com/liquidata-inc/dolt/go/store/chunks"
-	"github.com/liquidata-inc/dolt/go/store/spec"
-	"github.com/liquidata-inc/dolt/go/store/types/edits"
-
-	"github.com/liquidata-inc/dolt/go/libraries/utils/filesys"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/pantoerr"
-	"github.com/liquidata-inc/dolt/go/store/datas"
-	"github.com/liquidata-inc/dolt/go/store/hash"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/dbfactory"
+	"github.com/dolthub/dolt/go/libraries/doltcore/ref"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/dolthub/dolt/go/libraries/utils/pantoerr"
+	"github.com/dolthub/dolt/go/store/chunks"
+	"github.com/dolthub/dolt/go/store/datas"
+	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/spec"
+	"github.com/dolthub/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/store/types/edits"
 )
 
 func init() {
@@ -45,8 +45,12 @@ const (
 	MasterBranch     = "master"
 	CommitStructName = "Commit"
 
+	FeatureVersion featureVersion = 0
+
 	defaultChunksPerTF = 256 * 1024
 )
+
+type featureVersion int64
 
 // LocalDirDoltDB stores the db in the current directory
 var LocalDirDoltDB = "file://./" + dbfactory.DoltDataDir
@@ -187,6 +191,10 @@ func (ddb *DoltDB) WriteEmptyRepoWithCommitTime(ctx context.Context, name, email
 }
 
 func getCommitStForRefStr(ctx context.Context, db datas.Database, ref string) (types.Struct, error) {
+	if !datas.DatasetFullRe.MatchString(ref) {
+		return types.EmptyStruct(db.Format()), fmt.Errorf("invalid ref format: %s", ref)
+	}
+
 	ds, err := db.GetDataset(ctx, ref)
 
 	if err != nil {
@@ -194,11 +202,35 @@ func getCommitStForRefStr(ctx context.Context, db datas.Database, ref string) (t
 	}
 
 	dsHead, hasHead := ds.MaybeHead()
-	if hasHead {
+
+	if !hasHead {
+		return types.EmptyStruct(db.Format()), ErrBranchNotFound
+	}
+
+	if dsHead.Name() == datas.CommitName {
 		return dsHead, nil
 	}
 
-	return types.EmptyStruct(db.Format()), ErrBranchNotFound
+	if dsHead.Name() == datas.TagName {
+		commitRef, ok, err := dsHead.MaybeGet(datas.TagCommitRefField)
+		if err != nil {
+			return types.EmptyStruct(db.Format()), err
+		}
+		if !ok {
+			err = fmt.Errorf("tag struct does not have field %s", datas.TagCommitRefField)
+			return types.EmptyStruct(db.Format()), err
+		}
+
+		commitSt, err := commitRef.(types.Ref).TargetValue(ctx, db)
+		if err != nil {
+			return types.EmptyStruct(db.Format()), err
+		}
+
+		return commitSt.(types.Struct), nil
+	}
+
+	err = fmt.Errorf("dataset head is neither commit nor tag")
+	return types.EmptyStruct(db.Format()), err
 }
 
 func getCommitStForHash(ctx context.Context, db datas.Database, c string) (types.Struct, error) {
@@ -279,8 +311,8 @@ func (ddb *DoltDB) Resolve(ctx context.Context, cs *CommitSpec, cwb ref.DoltRef)
 		// For a ref in a CommitSpec, we have the following behavior.
 		// If it starts with `refs/`, we look for an exact match before
 		// we try any suffix matches. After that, we try a match on the
-		// user supplied input, with the following three prefixes, in
-		// order: `refs/`, `refs/heads/`, `refs/remotes/`.
+		// user supplied input, with the following four prefixes, in
+		// order: `refs/`, `refs/heads/`, `refs/tags/`, `refs/remotes/`.
 		candidates := []string{
 			"refs/" + cs.baseSpec,
 			"refs/heads/" + cs.baseSpec,
@@ -333,6 +365,27 @@ func (ddb *DoltDB) ResolveRef(ctx context.Context, ref ref.DoltRef) (*Commit, er
 	return NewCommit(ddb.db, commitSt), nil
 }
 
+// ResolveTag takes a TagRef and returns the corresponding Tag object.
+func (ddb *DoltDB) ResolveTag(ctx context.Context, tagRef ref.TagRef) (*Tag, error) {
+	ds, err := ddb.db.GetDataset(ctx, tagRef.String())
+
+	if err != nil {
+		return nil, ErrTagNotFound
+	}
+
+	tagSt, hasHead := ds.MaybeHead()
+
+	if !hasHead {
+		return nil, ErrTagNotFound
+	}
+
+	if tagSt.Name() != datas.TagName {
+		return nil, fmt.Errorf("tagRef head is not a tag")
+	}
+
+	return NewTag(ctx, tagRef.GetPath(), ddb.db, tagSt)
+}
+
 // TODO: convenience method to resolve the head commit of a branch.
 
 // WriteRootValue will write a doltdb.RootValue instance to the database.  This value will not be associated with a commit
@@ -363,14 +416,30 @@ func (ddb *DoltDB) ReadRootValue(ctx context.Context, h hash.Hash) (*RootValue, 
 	if err != nil {
 		return nil, err
 	}
+	if val == nil {
+		return nil, errors.New("there is no dolt root value at that hash")
+	}
 
-	if val != nil {
-		if rootSt, ok := val.(types.Struct); ok && rootSt.Name() == ddbRootStructName {
-			return &RootValue{ddb.db, rootSt, nil}, nil
+	rootSt, ok := val.(types.Struct)
+	if !ok || rootSt.Name() != ddbRootStructName {
+		return nil, errors.New("there is no dolt root value at that hash")
+	}
+
+	v, ok, err := rootSt.MaybeGet(featureVersKey)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		ver := featureVersion(v.(types.Int))
+		if FeatureVersion < ver {
+			return nil, ErrClientOutOfDate{
+				clientVer: FeatureVersion,
+				repoVer:   ver,
+			}
 		}
 	}
 
-	return nil, errors.New("there is no dolt root value at that hash")
+	return &RootValue{ddb.db, rootSt, nil}, nil
 }
 
 // Commit will update a branch's head value to be that of a previously committed root value hash
@@ -417,21 +486,26 @@ func (ddb *DoltDB) CanFastForward(ctx context.Context, branch ref.DoltRef, new *
 	return current.CanFastForwardTo(ctx, new)
 }
 
-// SetHead sets the given ref to point at the given commit. It is used in the course of 'force' updates.
-func (ddb *DoltDB) SetHead(ctx context.Context, ref ref.DoltRef, cm *Commit) error {
+// SetHeadToCommit sets the given ref to point at the given commit. It is used in the course of 'force' updates.
+func (ddb *DoltDB) SetHeadToCommit(ctx context.Context, ref ref.DoltRef, cm *Commit) error {
+
+	stRef, err := types.NewRef(cm.commitSt, ddb.db.Format())
+
+	if err != nil {
+		return err
+	}
+
+	return ddb.SetHead(ctx, ref, stRef)
+}
+
+func (ddb *DoltDB) SetHead(ctx context.Context, ref ref.DoltRef, stRef types.Ref) error {
 	ds, err := ddb.db.GetDataset(ctx, ref.String())
 
 	if err != nil {
 		return err
 	}
 
-	r, err := types.NewRef(cm.commitSt, ddb.db.Format())
-
-	if err != nil {
-		return err
-	}
-
-	_, err = ddb.db.SetHead(ctx, ds, r)
+	_, err = ddb.db.SetHead(ctx, ds, stRef)
 	return err
 }
 
@@ -450,6 +524,7 @@ func (ddb *DoltDB) CommitWithParentSpecs(ctx context.Context, valHash hash.Hash,
 	return ddb.CommitWithParentCommits(ctx, valHash, dref, parentCommits, cm)
 }
 
+// todo: merge with CommitDanglingWithParentCommits
 func (ddb *DoltDB) WriteDanglingCommit(ctx context.Context, valHash hash.Hash, parentCommits []*Commit, cm *CommitMeta) (*Commit, error) {
 	var commitSt types.Struct
 	val, err := ddb.db.ReadValue(ctx, valHash)
@@ -650,7 +725,7 @@ func (ddb *DoltDB) Format() *types.NomsBinFormat {
 	return ddb.db.Format()
 }
 
-func writeValAndGetRef(ctx context.Context, vrw types.ValueReadWriter, val types.Value) (types.Ref, error) {
+func WriteValAndGetRef(ctx context.Context, vrw types.ValueReadWriter, val types.Value) (types.Ref, error) {
 	valRef, err := types.NewRef(val, vrw.Format())
 
 	if err != nil {
@@ -767,10 +842,6 @@ func (ddb *DoltDB) NewBranchAtCommit(ctx context.Context, dref ref.DoltRef, comm
 		panic(fmt.Sprintf("invalid branch name %s, use IsValidUserBranchName check", dref.String()))
 	}
 
-	return ddb.newRefAtCommit(ctx, dref, commit)
-}
-
-func (ddb *DoltDB) newRefAtCommit(ctx context.Context, dref ref.DoltRef, commit *Commit) error {
 	ds, err := ddb.db.GetDataset(ctx, dref.String())
 
 	if err != nil {
@@ -809,12 +880,43 @@ func (ddb *DoltDB) deleteRef(ctx context.Context, dref ref.DoltRef) error {
 }
 
 // NewTagAtCommit create a new tag at the commit given.
-func (ddb *DoltDB) NewTagAtCommit(ctx context.Context, tagRef ref.DoltRef, commit *Commit) error {
+func (ddb *DoltDB) NewTagAtCommit(ctx context.Context, tagRef ref.DoltRef, c *Commit, meta *TagMeta) error {
 	if !IsValidTagRef(tagRef) {
 		panic(fmt.Sprintf("invalid tag name %s, use IsValidUserTagName check", tagRef.String()))
 	}
 
-	return ddb.newRefAtCommit(ctx, tagRef, commit)
+	ds, err := ddb.db.GetDataset(ctx, tagRef.String())
+
+	if err != nil {
+		return err
+	}
+
+	_, hasHead, err := ds.MaybeHeadRef()
+
+	if err != nil {
+		return err
+	}
+	if hasHead {
+		return fmt.Errorf("dataset already exists for tag %s", tagRef.String())
+	}
+
+	r, err := types.NewRef(c.commitSt, ddb.Format())
+
+	if err != nil {
+		return err
+	}
+
+	st, err := meta.toNomsStruct(ddb.db.Format())
+
+	if err != nil {
+		return err
+	}
+
+	tag := datas.TagOptions{Meta: st}
+
+	ds, err = ddb.db.Tag(ctx, ds, r, tag)
+
+	return err
 }
 
 func (ddb *DoltDB) DeleteTag(ctx context.Context, tag ref.DoltRef) error {
@@ -827,15 +929,107 @@ func (ddb *DoltDB) DeleteTag(ctx context.Context, tag ref.DoltRef) error {
 	return err
 }
 
-// PushChunks initiates a push into a database from the source database given, at the commit given. Pull progress is
-// communicated over the provided channel.
-func (ddb *DoltDB) PushChunks(ctx context.Context, tempDir string, srcDB *DoltDB, cm *Commit, progChan chan datas.PullProgress, pullerEventCh chan datas.PullerEvent) error {
-	rf, err := types.NewRef(cm.commitSt, ddb.db.Format())
+// GC performs garbage collection on this ddb. Values passed in |uncommitedVals| will be temporarily saved during gc.
+func (ddb *DoltDB) GC(ctx context.Context, uncommitedVals ...hash.Hash) error {
+	collector, ok := ddb.db.(datas.GarbageCollector)
+	if !ok {
+		return fmt.Errorf("this database does not support garbage collection")
+	}
 
+	err := ddb.pruneUnreferencedDatasets(ctx)
 	if err != nil {
 		return err
 	}
 
+	rand.Seed(time.Now().UnixNano())
+	tmpDatasets := make([]datas.Dataset, len(uncommitedVals))
+	for i, h := range uncommitedVals {
+		v, err := ddb.db.ReadValue(ctx, h)
+		if err != nil {
+			return err
+		}
+		if v == nil {
+			return fmt.Errorf("empty value for value hash %s", h.String())
+		}
+
+		ds, err := ddb.db.GetDataset(ctx, fmt.Sprintf("tmp/%d", rand.Int63()))
+		if err != nil {
+			return err
+		}
+
+		r, err := WriteValAndGetRef(ctx, ddb.db, v)
+		if err != nil {
+			return err
+		}
+
+		ds, err = ddb.db.CommitValue(ctx, ds, r)
+		if err != nil {
+			return err
+		}
+		if !ds.HasHead() {
+			return fmt.Errorf("could not save value %s", h.String())
+		}
+
+		tmpDatasets[i] = ds
+	}
+
+	err = collector.GC(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, ds := range tmpDatasets {
+		ds, err = ddb.db.Delete(ctx, ds)
+		if err != nil {
+			return err
+		}
+
+		if ds.HasHead() {
+			return fmt.Errorf("unsuccessful delete for dataset %s", ds.ID())
+		}
+	}
+
+	return nil
+}
+
+func (ddb *DoltDB) pruneUnreferencedDatasets(ctx context.Context) error {
+	dd, err := ddb.db.Datasets(ctx)
+	if err != nil {
+		return err
+	}
+
+	var deletes []string
+	_ = dd.Iter(ctx, func(ds, _ types.Value) (stop bool, err error) {
+		dsID := string(ds.(types.String))
+		if !ref.IsRef(dsID) {
+			deletes = append(deletes, dsID)
+		}
+		return false, nil
+	})
+
+	// e.g. flushes
+	for _, dsID := range deletes {
+		ds, err := ddb.db.GetDataset(ctx, dsID)
+		if err != nil {
+			return err
+		}
+
+		ds, err = ddb.db.Delete(ctx, ds)
+		if err != nil {
+			return err
+		}
+
+		if ds.HasHead() {
+			return fmt.Errorf("unsuccessful delete for dataset %s", ds.ID())
+		}
+	}
+
+	return nil
+}
+
+// PushChunks initiates a push into a database from the source database given, at the Value ref given. Pull progress is
+// communicated over the provided channel.
+func (ddb *DoltDB) PushChunks(ctx context.Context, tempDir string, srcDB *DoltDB, rf types.Ref, progChan chan datas.PullProgress, pullerEventCh chan datas.PullerEvent) error {
 	if datas.CanUsePuller(srcDB.db) && datas.CanUsePuller(ddb.db) {
 		puller, err := datas.NewPuller(ctx, tempDir, defaultChunksPerTF, srcDB.db, ddb.db, rf.TargetHash(), pullerEventCh)
 
@@ -869,15 +1063,9 @@ func (ddb *DoltDB) PushChunksForRefHash(ctx context.Context, tempDir string, src
 
 // PullChunks initiates a pull into a database from the source database given, at the commit given. Progress is
 // communicated over the provided channel.
-func (ddb *DoltDB) PullChunks(ctx context.Context, tempDir string, srcDB *DoltDB, cm *Commit, progChan chan datas.PullProgress, pullerEventCh chan datas.PullerEvent) error {
-	rf, err := types.NewRef(cm.commitSt, ddb.db.Format())
-
-	if err != nil {
-		return err
-	}
-
+func (ddb *DoltDB) PullChunks(ctx context.Context, tempDir string, srcDB *DoltDB, stRef types.Ref, progChan chan datas.PullProgress, pullerEventCh chan datas.PullerEvent) error {
 	if datas.CanUsePuller(srcDB.db) && datas.CanUsePuller(ddb.db) {
-		puller, err := datas.NewPuller(ctx, tempDir, 256*1024, srcDB.db, ddb.db, rf.TargetHash(), pullerEventCh)
+		puller, err := datas.NewPuller(ctx, tempDir, 256*1024, srcDB.db, ddb.db, stRef.TargetHash(), pullerEventCh)
 
 		if err == datas.ErrDBUpToDate {
 			return nil
@@ -887,7 +1075,7 @@ func (ddb *DoltDB) PullChunks(ctx context.Context, tempDir string, srcDB *DoltDB
 
 		return puller.Pull(ctx)
 	} else {
-		return datas.PullWithoutBatching(ctx, srcDB.db, ddb.db, rf, progChan)
+		return datas.PullWithoutBatching(ctx, srcDB.db, ddb.db, stRef, progChan)
 	}
 }
 

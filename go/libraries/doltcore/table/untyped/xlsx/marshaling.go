@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,16 +15,19 @@
 package xlsx
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/tealeg/xlsx"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/store/types"
 )
+
+var ErrTableNameMatchSheetName = errors.New("table name must match excel sheet name.")
 
 func UnmarshalFromXLSX(path string) ([][][]string, error) {
 	data, err := openFile(path)
@@ -52,7 +55,18 @@ func openFile(path string) (*xlsx.File, error) {
 	return data, nil
 }
 
-func decodeXLSXRows(nbf *types.NomsBinFormat, xlData [][][]string, sch schema.Schema) ([]row.Row, error) {
+func openBinary(content []byte) (*xlsx.File, error) {
+	data, err := xlsx.OpenBinary(content)
+
+	if err != nil {
+		msg := strings.ReplaceAll(err.Error(), "zip", "xlsx")
+		return nil, fmt.Errorf(msg)
+	}
+
+	return data, nil
+}
+
+func decodeXLSXRows(ctx context.Context, vrw types.ValueReadWriter, xlData [][][]string, sch schema.Schema) ([]row.Row, error) {
 	var rows []row.Row
 
 	var err error
@@ -73,12 +87,12 @@ func decodeXLSXRows(nbf *types.NomsBinFormat, xlData [][][]string, sch schema.Sc
 					return nil, errors.New(v + "is not a valid column")
 				}
 				valString := dataVals[i+1][k]
-				taggedVals[col.Tag], err = col.TypeInfo.ParseValue(&valString)
+				taggedVals[col.Tag], err = col.TypeInfo.ParseValue(ctx, vrw, &valString)
 				if err != nil {
 					return nil, err
 				}
 			}
-			r, err := row.New(nbf, sch, taggedVals)
+			r, err := row.New(vrw.Format(), sch, taggedVals)
 
 			if err != nil {
 				return nil, err
@@ -92,13 +106,25 @@ func decodeXLSXRows(nbf *types.NomsBinFormat, xlData [][][]string, sch schema.Sc
 	return rows, nil
 }
 
-func getXlsxRows(path string, tblName string) ([][][]string, error) {
+func getXlsxRowsFromPath(path string, tblName string) ([][][]string, error) {
 	data, err := openFile(path)
-
 	if err != nil {
 		return nil, err
 	}
 
+	return getXlsxRows(data, tblName)
+}
+
+func getXlsxRowsFromBinary(content []byte, tblName string) ([][][]string, error) {
+	data, err := openBinary(content)
+	if err != nil {
+		return nil, err
+	}
+
+	return getXlsxRows(data, tblName)
+}
+
+func getXlsxRows(data *xlsx.File, tblName string) ([][][]string, error) {
 	var rows [][]string
 	var allRows [][][]string
 	for _, sheet := range data.Sheets {
@@ -116,5 +142,5 @@ func getXlsxRows(path string, tblName string) ([][][]string, error) {
 		}
 
 	}
-	return nil, errors.New("table name must match excel sheet name.")
+	return nil, ErrTableNameMatchSheetName
 }

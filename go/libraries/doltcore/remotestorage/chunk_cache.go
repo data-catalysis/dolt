@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,12 +15,12 @@
 package remotestorage
 
 import (
-	"github.com/liquidata-inc/dolt/go/store/hash"
-	"github.com/liquidata-inc/dolt/go/store/nbs"
+	"github.com/dolthub/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/nbs"
 )
 
-// chunkCache is an interface used for caching chunks
-type chunkCache interface {
+// ChunkCache is an interface used for caching chunks
+type ChunkCache interface {
 	// Put puts a slice of chunks into the cache.
 	Put(c []nbs.CompressedChunk)
 

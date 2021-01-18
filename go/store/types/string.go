@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/liquidata-inc/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/hash"
 )
 
 // String is a Noms Value wrapper around the primitive string type.
@@ -90,7 +90,7 @@ func (s String) writeTo(w nomsWriter, nbf *NomsBinFormat) error {
 }
 
 func (s String) readFrom(nbf *NomsBinFormat, b *binaryNomsReader) (Value, error) {
-	return String(b.readString()), nil
+	return String(b.ReadString()), nil
 }
 
 func (s String) skip(nbf *NomsBinFormat, b *binaryNomsReader) {

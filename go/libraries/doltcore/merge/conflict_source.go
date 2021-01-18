@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,12 +19,12 @@ import (
 	"errors"
 	"io"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/rowconv"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/pipeline"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/rowconv"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/pipeline"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 const (
@@ -83,14 +83,14 @@ func NewConflictReader(ctx context.Context, tbl *doltdb.Table) (*ConflictReader,
 	return &ConflictReader{confItr, joiner, tbl.Format()}, nil
 }
 
-func tagMappingConverter(src, dest schema.Schema) (*rowconv.RowConverter, error) {
+func tagMappingConverter(ctx context.Context, vrw types.ValueReadWriter, src, dest schema.Schema) (*rowconv.RowConverter, error) {
 	mapping, err := rowconv.TagMapping(src, dest)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return rowconv.NewRowConverter(mapping)
+	return rowconv.NewRowConverter(ctx, vrw, mapping)
 }
 
 // GetSchema gets the schema of the rows that this reader will return

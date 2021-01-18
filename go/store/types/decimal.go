@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"github.com/liquidata-inc/dolt/go/store/hash"
+	"github.com/dolthub/dolt/go/store/hash"
 )
 
 type Decimal decimal.Decimal
@@ -89,10 +89,7 @@ func (v Decimal) writeTo(w nomsWriter, nbf *NomsBinFormat) error {
 }
 
 func (v Decimal) readFrom(nbf *NomsBinFormat, b *binaryNomsReader) (Value, error) {
-	size := uint32(b.readUint16())
-	db := b.readBytes(size)
-	dec := decimal.Decimal{}
-	err := dec.GobDecode(db)
+	dec, err := b.ReadDecimal()
 	if err != nil {
 		return nil, err
 	}

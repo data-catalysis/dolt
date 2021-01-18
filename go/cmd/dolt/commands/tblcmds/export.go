@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,20 +21,20 @@ import (
 
 	"github.com/fatih/color"
 
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/cli"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/commands"
-	"github.com/liquidata-inc/dolt/go/cmd/dolt/errhand"
-	eventsapi "github.com/liquidata-inc/dolt/go/gen/proto/dolt/services/eventsapi/v1alpha1"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/mvdata"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/pipeline"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/table/typed/noms"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/argparser"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/filesys"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/funcitr"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/iohelp"
+	"github.com/dolthub/dolt/go/cmd/dolt/cli"
+	"github.com/dolthub/dolt/go/cmd/dolt/commands"
+	"github.com/dolthub/dolt/go/cmd/dolt/errhand"
+	eventsapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/eventsapi/v1alpha1"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/mvdata"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/pipeline"
+	"github.com/dolthub/dolt/go/libraries/doltcore/table/typed/noms"
+	"github.com/dolthub/dolt/go/libraries/utils/argparser"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/dolthub/dolt/go/libraries/utils/funcitr"
+	"github.com/dolthub/dolt/go/libraries/utils/iohelp"
 )
 
 var exportDocs = cli.CommandDocumentationContent{
@@ -215,7 +215,7 @@ func (cmd ExportCmd) Exec(ctx context.Context, commandStr string, args []string,
 		return commands.HandleVErrAndExitCode(verr, usage)
 	}
 
-	mover, verr := NewExportDataMover(ctx, root, dEnv.FS, exOpts, importStatsCB)
+	mover, verr := NewExportDataMover(ctx, root, dEnv, exOpts, importStatsCB)
 
 	if verr != nil {
 		return commands.HandleVErrAndExitCode(verr, usage)
@@ -234,11 +234,11 @@ func (cmd ExportCmd) Exec(ctx context.Context, commandStr string, args []string,
 	return 0
 }
 
-func NewExportDataMover(ctx context.Context, root *doltdb.RootValue, fs filesys.Filesys, exOpts *exportOptions, statsCB noms.StatsCB) (*mvdata.DataMover, errhand.VerboseError) {
+func NewExportDataMover(ctx context.Context, root *doltdb.RootValue, dEnv *env.DoltEnv, exOpts *exportOptions, statsCB noms.StatsCB) (*mvdata.DataMover, errhand.VerboseError) {
 	var rd table.TableReadCloser
 	var err error
 
-	ow, err := exOpts.checkOverwrite(ctx, root, fs)
+	ow, err := exOpts.checkOverwrite(ctx, root, dEnv.FS)
 	if err != nil {
 		return nil, errhand.VerboseErrorFromError(err)
 	}
@@ -246,7 +246,7 @@ func NewExportDataMover(ctx context.Context, root *doltdb.RootValue, fs filesys.
 		return nil, errhand.BuildDError("%s already exists. Use -f to overwrite.", exOpts.DestName()).Build()
 	}
 
-	rd, srcIsSorted, err := exOpts.src.NewReader(ctx, root, fs, exOpts.srcOptions)
+	rd, srcIsSorted, err := exOpts.src.NewReader(ctx, root, dEnv.FS, exOpts.srcOptions)
 
 	if err != nil {
 		return nil, errhand.BuildDError("Error creating reader for %s.", exOpts.SrcName()).AddCause(err).Build()
@@ -262,7 +262,7 @@ func NewExportDataMover(ctx context.Context, root *doltdb.RootValue, fs filesys.
 	inSch := rd.GetSchema()
 	outSch := inSch
 
-	wr, err := exOpts.dest.NewCreatingWriter(ctx, exOpts, root, fs, srcIsSorted, outSch, statsCB)
+	wr, err := exOpts.dest.NewCreatingWriter(ctx, exOpts, dEnv, root, srcIsSorted, outSch, statsCB, true)
 
 	if err != nil {
 		return nil, errhand.BuildDError("Could not create table writer for %s", exOpts.tableName).AddCause(err).Build()

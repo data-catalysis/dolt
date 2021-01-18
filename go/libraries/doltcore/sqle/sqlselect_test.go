@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,18 +19,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liquidata-inc/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/dtestutils"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/envtestutils"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	. "github.com/liquidata-inc/dolt/go/libraries/doltcore/sql/sqltestutil"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/envtestutils"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	. "github.com/dolthub/dolt/go/libraries/doltcore/sql/sqltestutil"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dtables"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 // Set to the name of a single test to run just that test, useful for debugging
@@ -660,6 +661,11 @@ var BasicSelectTests = []SelectTest{
 		ExpectedErr: `Unknown table: 'dolt_diff_dne'`,
 	},
 	{
+		Name:        "unknown diff table",
+		Query:       "select * from dolt_commit_diff_dne",
+		ExpectedErr: `Unknown table: 'dolt_commit_diff_dne'`,
+	},
+	{
 		Name:        "unknown history table",
 		Query:       "select * from dolt_history_dne",
 		ExpectedErr: `Unknown table: 'dolt_history_dne'`,
@@ -709,7 +715,7 @@ var BasicSelectTests = []SelectTest{
 				"0o2rnf5pq2s1nq3hj3609e1lt0socuf1",
 				"billy bob",
 				"bigbillieb@fake.horse",
-				time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC),
+				time.Date(1970, 1, 1, 0, 0, 0, 0, &time.Location{}),
 				"Initialize data repository",
 			},
 		},
@@ -738,7 +744,7 @@ var BasicSelectTests = []SelectTest{
 				"master",
 				"0o2rnf5pq2s1nq3hj3609e1lt0socuf1",
 				"billy bob", "bigbillieb@fake.horse",
-				time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC),
+				time.Date(1970, 1, 1, 0, 0, 0, 0, &time.Location{}),
 				"Initialize data repository",
 			},
 		},
@@ -1438,9 +1444,11 @@ func TestAsOfQueries(t *testing.T) {
 
 func TestJoins(t *testing.T) {
 	for _, tt := range JoinTests {
-		t.Run(tt.Name, func(t *testing.T) {
-			testSelectQuery(t, tt)
-		})
+		if tt.Name == "Join from table with two key columns to table with one key column" {
+			t.Run(tt.Name, func(t *testing.T) {
+				testSelectQuery(t, tt)
+			})
+		}
 	}
 }
 
@@ -1470,8 +1478,8 @@ var systemTableSelectTests = []SelectTest{
 	{
 		Name: "select from dolt_query_catalog",
 		AdditionalSetup: CreateTableFn(doltdb.DoltQueryCatalogTableName,
-			DoltQueryCatalogSchema,
-			NewRowWithSchema(DoltQueryCatalogSchema,
+			dtables.DoltQueryCatalogSchema,
+			NewRowWithSchema(dtables.DoltQueryCatalogSchema,
 				types.String("existingEntry"),
 				types.Uint(2),
 				types.String("example"),
@@ -1479,10 +1487,10 @@ var systemTableSelectTests = []SelectTest{
 				types.String("description")),
 		),
 		Query: "select * from dolt_query_catalog",
-		ExpectedRows: ToSqlRows(CompressSchema(DoltQueryCatalogSchema),
+		ExpectedRows: ToSqlRows(CompressSchema(dtables.DoltQueryCatalogSchema),
 			NewRow(types.String("existingEntry"), types.Uint(2), types.String("example"), types.String("select 2+2 from dual"), types.String("description")),
 		),
-		ExpectedSchema: CompressSchema(DoltQueryCatalogSchema),
+		ExpectedSchema: CompressSchema(dtables.DoltQueryCatalogSchema),
 	},
 	{
 		Name: "select from dolt_schemas",
@@ -1492,10 +1500,11 @@ var systemTableSelectTests = []SelectTest{
 				types.String("view"),
 				types.String("name"),
 				types.String("select 2+2 from dual"),
+				types.Int(1),
 			)),
 		Query: "select * from dolt_schemas",
 		ExpectedRows: ToSqlRows(CompressSchema(schemasTableDoltSchema()),
-			NewRow(types.String("view"), types.String("name"), types.String("select 2+2 from dual")),
+			NewRow(types.String("view"), types.String("name"), types.String("select 2+2 from dual"), types.Int(1)),
 		),
 		ExpectedSchema: CompressSchema(schemasTableDoltSchema()),
 	},

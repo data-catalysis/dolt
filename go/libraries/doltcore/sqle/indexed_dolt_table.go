@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,7 +14,17 @@
 
 package sqle
 
-import "github.com/liquidata-inc/go-mysql-server/sql"
+import (
+	"encoding/binary"
+	"errors"
+	"io"
+	"sync"
+
+	"github.com/dolthub/go-mysql-server/sql"
+
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/lookup"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/sqlutil"
+)
 
 // IndexedDoltTable is a wrapper for a DoltTable and a doltIndexLookup. It implements the sql.Table interface like
 // DoltTable, but its RowIter function returns values that match the indexLookup, instead of all rows. It's returned by
@@ -48,9 +58,100 @@ func (idt *IndexedDoltTable) Schema() sql.Schema {
 }
 
 func (idt *IndexedDoltTable) Partitions(ctx *sql.Context) (sql.PartitionIter, error) {
-	return newSinglePartitionIter(), nil
+	return sqlutil.NewSinglePartitionIter(), nil
 }
 
 func (idt *IndexedDoltTable) PartitionRows(ctx *sql.Context, _ sql.Partition) (sql.RowIter, error) {
 	return idt.indexLookup.RowIter(ctx)
+}
+
+type rangePartition struct {
+	partitionRange lookup.Range
+	keyBytes       []byte
+}
+
+func (rp rangePartition) Key() []byte {
+	return rp.keyBytes
+}
+
+type rangePartitionIter struct {
+	ranges []lookup.Range
+	curr   int
+	mu     *sync.Mutex
+}
+
+func NewRangePartitionIter(ranges []lookup.Range) *rangePartitionIter {
+	return &rangePartitionIter{
+		ranges: ranges,
+		curr:   0,
+		mu:     &sync.Mutex{},
+	}
+}
+
+// Close is required by the sql.PartitionIter interface. Does nothing.
+func (itr *rangePartitionIter) Close() error {
+	return nil
+}
+
+// Next returns the next partition if there is one, or io.EOF if there isn't.
+func (itr *rangePartitionIter) Next() (sql.Partition, error) {
+	itr.mu.Lock()
+	defer itr.mu.Unlock()
+
+	if itr.curr >= len(itr.ranges) {
+		return nil, io.EOF
+	}
+
+	var bytes [4]byte
+	binary.BigEndian.PutUint32(bytes[:], uint32(itr.curr))
+	part := rangePartition{itr.ranges[itr.curr], bytes[:]}
+	itr.curr += 1
+
+	return part, nil
+}
+
+var _ sql.IndexedTable = (*WritableIndexedDoltTable)(nil)
+var _ sql.UpdatableTable = (*WritableIndexedDoltTable)(nil)
+var _ sql.DeletableTable = (*WritableIndexedDoltTable)(nil)
+var _ sql.ReplaceableTable = (*WritableIndexedDoltTable)(nil)
+
+type WritableIndexedDoltTable struct {
+	*WritableDoltTable
+	indexLookup *doltIndexLookup
+}
+
+func (t *WritableIndexedDoltTable) Partitions(ctx *sql.Context) (sql.PartitionIter, error) {
+	if len(t.indexLookup.ranges) > 1 {
+		return NewRangePartitionIter(t.indexLookup.ranges), nil
+	}
+	return sqlutil.NewSinglePartitionIter(), nil
+}
+
+func (t *WritableIndexedDoltTable) PartitionRows(ctx *sql.Context, part sql.Partition) (sql.RowIter, error) {
+	switch typed := part.(type) {
+	case rangePartition:
+		var projectedCols []string
+		if projTbl, ok := interface{}(t).(projected); ok {
+			projectedCols = projTbl.Project()
+		}
+
+		return t.indexLookup.RowIterForRanges(ctx, []lookup.Range{typed.partitionRange}, projectedCols)
+	case sqlutil.SinglePartition:
+		return t.indexLookup.RowIter(ctx)
+	}
+
+	return nil, errors.New("unknown partition type")
+}
+
+type projectedWritableIndexedDoltTable struct {
+	*WritableIndexedDoltTable
+	projectedCols []string
+}
+
+func (t *projectedWritableIndexedDoltTable) Projection() []string {
+	return t.projectedCols
+}
+
+func (t *WritableIndexedDoltTable) WithProjection(colNames []string) sql.Table {
+	return &projectedWritableIndexedDoltTable{t, colNames}
 }

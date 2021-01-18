@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ package types
 import (
 	"sync"
 
-	"github.com/liquidata-inc/dolt/go/store/sloppy"
+	"github.com/dolthub/dolt/go/store/sloppy"
 
 	"github.com/kch42/buzhash"
 )
@@ -100,10 +100,14 @@ func newRollingValueHasher(nbf *NomsBinFormat, salt byte) *rollingValueHasher {
 }
 
 func (rv *rollingValueHasher) HashByte(b byte) bool {
+	return rv.hashByte(b, rv.bw.offset)
+}
+
+func (rv *rollingValueHasher) hashByte(b byte, offset uint32) bool {
 	if !rv.crossedBoundary {
 		rv.bz.HashByte(b ^ rv.salt)
 		rv.crossedBoundary = (rv.bz.Sum32()&rv.pattern == rv.pattern)
-		if rv.bw.offset > maxChunkSize {
+		if offset > maxChunkSize {
 			rv.crossedBoundary = true
 		}
 	}

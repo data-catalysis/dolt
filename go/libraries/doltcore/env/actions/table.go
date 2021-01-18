@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,14 +17,14 @@ package actions
 import (
 	"context"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/diff"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/set"
+	"github.com/dolthub/dolt/go/libraries/doltcore/diff"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/utils/set"
 )
 
 func CheckoutAllTables(ctx context.Context, dEnv *env.DoltEnv) error {
-	roots, err := getRoots(ctx, dEnv, WorkingRoot, StagedRoot, HeadRoot)
+	roots, err := getRoots(ctx, dEnv.DoltDB, dEnv.RepoStateReader(), WorkingRoot, StagedRoot, HeadRoot)
 
 	if err != nil {
 		return err
@@ -43,7 +43,7 @@ func CheckoutAllTables(ctx context.Context, dEnv *env.DoltEnv) error {
 }
 
 func CheckoutTablesAndDocs(ctx context.Context, dEnv *env.DoltEnv, tbls []string, docs []doltdb.DocDetails) error {
-	roots, err := getRoots(ctx, dEnv, WorkingRoot, StagedRoot, HeadRoot)
+	roots, err := getRoots(ctx, dEnv.DoltDB, dEnv.RepoStateReader(), WorkingRoot, StagedRoot, HeadRoot)
 
 	if err != nil {
 		return err
@@ -210,4 +210,15 @@ func validateTablesExist(ctx context.Context, currRoot *doltdb.RootValue, unknow
 	}
 
 	return nil
+}
+
+// RemoveDocsTable takes a slice of table names and returns a new slice with DocTableName removed.
+func RemoveDocsTable(tbls []string) []string {
+	var result []string
+	for _, tblName := range tbls {
+		if tblName != doltdb.DocTableName {
+			result = append(result, tblName)
+		}
+	}
+	return result
 }

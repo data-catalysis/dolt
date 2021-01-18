@@ -1,4 +1,4 @@
-// Copyright 2020 Liquidata, Inc.
+// Copyright 2020 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,11 +18,11 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/liquidata-inc/dolt/go/libraries/utils/set"
+	"github.com/dolthub/dolt/go/libraries/utils/set"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/row"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/row"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 // Creates a new schema for a result set specified by the given pairs of column names and types. Column names are
@@ -102,7 +102,7 @@ func NewRowWithPks(pkColVals []types.Value, nonPkVals ...types.Value) row.Row {
 		panic(err.Error())
 	}
 
-	sch := schema.SchemaFromCols(colColl)
+	sch := schema.MustSchemaFromCols(colColl)
 
 	r, err := row.New(types.Format_7_18, sch, taggedVals)
 
@@ -170,7 +170,7 @@ func NewSchemaForTable(tableName string, colNamesAndTypes ...interface{}) schema
 		panic(err.Error())
 	}
 
-	return schema.SchemaFromCols(colColl)
+	return schema.MustSchemaFromCols(colColl)
 }
 
 // Returns the logical concatenation of the schemas and rows given, rewriting all tag numbers to begin at zero. The row
@@ -269,11 +269,11 @@ func CompressSchema(sch schema.Schema, colNames ...string) schema.Schema {
 		}
 	} else {
 		cols = make([]schema.Column, sch.GetAllCols().Size())
-		sch.GetAllCols().IterInSortedOrder(func(tag uint64, col schema.Column) (stop bool) {
+		sch.GetAllCols().Iter(func(tag uint64, col schema.Column) (stop bool, err error) {
 			col.Tag = itag
 			cols[itag] = col
 			itag++
-			return false
+			return false, nil
 		})
 	}
 

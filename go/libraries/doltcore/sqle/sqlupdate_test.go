@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,17 +18,18 @@ import (
 	"context"
 	"testing"
 
+	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/google/uuid"
-	"github.com/liquidata-inc/go-mysql-server/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/doltdb"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/dtestutils"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/schema"
-	. "github.com/liquidata-inc/dolt/go/libraries/doltcore/sql/sqltestutil"
-	"github.com/liquidata-inc/dolt/go/store/types"
+	"github.com/dolthub/dolt/go/libraries/doltcore/doltdb"
+	"github.com/dolthub/dolt/go/libraries/doltcore/dtestutils"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/doltcore/schema"
+	. "github.com/dolthub/dolt/go/libraries/doltcore/sql/sqltestutil"
+	"github.com/dolthub/dolt/go/libraries/doltcore/sqle/dtables"
+	"github.com/dolthub/dolt/go/store/types"
 )
 
 // Set to the name of a single test to run just that test, useful for debugging
@@ -292,8 +293,8 @@ var BasicUpdateTests = []UpdateTest{
 		ExpectedSchema: CompressSchema(PeopleTestSchema),
 	},
 	{
-		Name:        "update multiple rows pk increment order by asc",
-		UpdateQuery: `update people set id = id + 1 order by id asc`,
+		Name:        "update multiple rows pk increment order by desc",
+		UpdateQuery: `update people set id = id + 1 order by id desc`,
 		SelectQuery: `select * from people order by id`,
 		ExpectedRows: ToSqlRows(PeopleTestSchema,
 			MutateRow(PeopleTestSchema, Homer, IdTag, HomerId+1),
@@ -304,6 +305,11 @@ var BasicUpdateTests = []UpdateTest{
 			MutateRow(PeopleTestSchema, Barney, IdTag, BarneyId+1),
 		),
 		ExpectedSchema: CompressSchema(PeopleTestSchema),
+	},
+	{
+		Name:        "update multiple rows pk increment order by asc",
+		UpdateQuery: `update people set id = id + 1 order by id asc`,
+		ExpectedErr: "duplicate primary key",
 	},
 	{
 		Name:        "update primary key col",
@@ -380,8 +386,8 @@ var systemTableUpdateTests = []UpdateTest{
 	{
 		Name: "update dolt_query_catalog",
 		AdditionalSetup: CreateTableFn(doltdb.DoltQueryCatalogTableName,
-			DoltQueryCatalogSchema,
-			NewRowWithSchema(DoltQueryCatalogSchema,
+			dtables.DoltQueryCatalogSchema,
+			NewRowWithSchema(dtables.DoltQueryCatalogSchema,
 				types.String("abc123"),
 				types.Uint(1),
 				types.String("example"),
@@ -390,9 +396,9 @@ var systemTableUpdateTests = []UpdateTest{
 			)),
 		UpdateQuery: "update dolt_query_catalog set display_order = display_order + 1",
 		SelectQuery: "select * from dolt_query_catalog",
-		ExpectedRows: ToSqlRows(CompressSchema(DoltQueryCatalogSchema),
+		ExpectedRows: ToSqlRows(CompressSchema(dtables.DoltQueryCatalogSchema),
 			NewRow(types.String("abc123"), types.Uint(2), types.String("example"), types.String("select 2+2 from dual"), types.String("description"))),
-		ExpectedSchema: CompressSchema(DoltQueryCatalogSchema),
+		ExpectedSchema: CompressSchema(dtables.DoltQueryCatalogSchema),
 	},
 	{
 		Name: "update dolt_schemas",
@@ -402,11 +408,12 @@ var systemTableUpdateTests = []UpdateTest{
 				types.String("view"),
 				types.String("name"),
 				types.String("select 2+2 from dual"),
+				types.Int(1),
 			)),
 		UpdateQuery: "update dolt_schemas set type = 'not a view'",
 		SelectQuery: "select * from dolt_schemas",
 		ExpectedRows: ToSqlRows(CompressSchema(schemasTableDoltSchema()),
-			NewRow(types.String("not a view"), types.String("name"), types.String("select 2+2 from dual")),
+			NewRow(types.String("not a view"), types.String("name"), types.String("select 2+2 from dual"), types.Int(1)),
 		),
 		ExpectedSchema: CompressSchema(schemasTableDoltSchema()),
 	},

@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@
 
 package types
 
-import "github.com/liquidata-inc/dolt/go/store/hash"
+import "github.com/dolthub/dolt/go/store/hash"
 
 var getHashOverride func(v Value) (hash.Hash, error)
 

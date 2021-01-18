@@ -1,4 +1,4 @@
-// Copyright 2019 Liquidata, Inc.
+// Copyright 2019 Dolthub, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,10 +20,11 @@ import (
 
 	"github.com/fatih/color"
 
-	eventsapi "github.com/liquidata-inc/dolt/go/gen/proto/dolt/services/eventsapi/v1alpha1"
-	"github.com/liquidata-inc/dolt/go/libraries/doltcore/env"
-	"github.com/liquidata-inc/dolt/go/libraries/events"
-	"github.com/liquidata-inc/dolt/go/libraries/utils/filesys"
+	eventsapi "github.com/dolthub/dolt/go/gen/proto/dolt/services/eventsapi/v1alpha1"
+	"github.com/dolthub/dolt/go/libraries/doltcore/env"
+	"github.com/dolthub/dolt/go/libraries/events"
+	"github.com/dolthub/dolt/go/libraries/utils/filesys"
+	"github.com/dolthub/dolt/go/store/nbs"
 )
 
 func isHelp(str string) bool {
@@ -193,6 +194,10 @@ func CheckEnvIsValid(dEnv *env.DoltEnv) bool {
 	} else if dEnv.DBLoadError != nil {
 		PrintErrln(color.RedString("Failed to load database."))
 		PrintErrln(dEnv.DBLoadError.Error())
+		if dEnv.DBLoadError == nbs.ErrUnreadableManifest {
+			PrintErrln("\tyou might need to upgrade your Dolt client")
+			PrintErrln("\tvisit https://github.com/dolthub/dolt/releases/latest/")
+		}
 		return false
 	}
 
